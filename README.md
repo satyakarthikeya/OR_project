@@ -182,7 +182,15 @@ notebooks/        eda.ipynb
 
 Layering rules, the frontend conventions and the reasoning behind "no build step" are in [AGENT.md](AGENT.md).
 
-The frontend loads React, Tailwind and Plotly from CDN and compiles its JSX in the browser with Babel-standalone, so `uvicorn` alone runs the entire app. Parameters re-derive as you move a slider (debounced, and cached server-side per scenario); solving happens only on an explicit click.
+The frontend loads React, Tailwind, Plotly and IBM Plex from CDN and compiles its JSX in the browser with Babel-standalone, so `uvicorn` alone runs the entire app. Parameters re-derive as you move a slider (debounced, and cached server-side per scenario); solving happens only on an explicit click.
+
+### Interface
+
+The design is a **dispatch desk**, taken from the subject's own world rather than from dashboard convention: ruled square-cornered panels like a load sheet, IBM Plex Mono on every figure and label, and signal amber — the yellow of taxiway guidance signage — as the only accent, spent on active navigation, the primary action, focus, binding-constraint stripes and the lead chart series. Semantic jade and brick sit on a separate axis so "good/bad" never competes with "this is the decision".
+
+Structure carries information rather than decorating it: a binding constraint gets a left severity stripe so it reads before any number is parsed, and the standing model-world caveat is wrapped in apron hazard tape — a device nothing else in the interface uses.
+
+Colour is expressed entirely through CSS-variable tokens (`bg-panel`, `text-ink`, `border-rule`, `text-accent`), so a component is written once and both themes resolve correctly; neither theme is an inversion of the other. Contrast is verified in both: the lowest ratio in the interface is 5.0:1 against a 4.5:1 target.
 
 ---
 

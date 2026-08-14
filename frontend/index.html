@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Air Cargo Resource Allocation — OR Decision Support</title>
+  <title>Air Cargo Dispatch Desk</title>
   <meta name="description" content="Operations Research decision-support system for air-cargo terminal operations: LP workforce and equipment allocation, IP shipment selection." />
 
   <!-- No build step by design (AGENT.md): React, Tailwind and Plotly come from CDN
@@ -14,6 +14,13 @@
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
   <script src="https://cdn.tailwindcss.com/3.4.16"></script>
 
+  <!-- IBM Plex: drawn for technical documentation, so a load sheet set in it
+       reads as native to the subject rather than decorated. Sans for prose,
+       Mono for every numeral, symbol and small-caps label. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
+
   <script>
     // The theme has to be resolved before first paint, or the page flashes light.
     (function () {
@@ -23,29 +30,43 @@
       document.documentElement.classList.toggle('dark', dark);
     })();
 
+    // Every colour is a semantic token backed by a CSS variable, so a component
+    // writes `bg-panel text-ink` once and both themes resolve correctly. No
+    // component may reach for a raw palette value or a `dark:` colour pair.
     tailwind.config = {
       darkMode: 'class',
       theme: {
         extend: {
           colors: {
-            // One accent, used only for navigation state, primary actions,
-            // focus rings and the leading chart series. Everything else is
-            // neutral — restraint is what keeps a hand-rolled UI coherent.
-            accent: {
-              50: '#eefbf7', 100: '#d5f5ec', 200: '#aeeadb', 300: '#78d8c4',
-              400: '#41bda7', 500: '#1fa18d', 600: '#158173', 700: '#14675d',
-              800: '#15524b', 900: '#15453f', 950: '#052926',
-            },
+            ground:      'rgb(var(--c-ground) / <alpha-value>)',
+            panel:       'rgb(var(--c-panel) / <alpha-value>)',
+            sunken:      'rgb(var(--c-sunken) / <alpha-value>)',
+            rule:        'rgb(var(--c-rule) / <alpha-value>)',
+            'rule-firm': 'rgb(var(--c-rule-firm) / <alpha-value>)',
+            ink:         'rgb(var(--c-ink) / <alpha-value>)',
+            body:        'rgb(var(--c-body) / <alpha-value>)',
+            muted:       'rgb(var(--c-muted) / <alpha-value>)',
+            faint:       'rgb(var(--c-faint) / <alpha-value>)',
+            accent:      'rgb(var(--c-accent) / <alpha-value>)',
+            'accent-fill': 'rgb(var(--c-accent-fill) / <alpha-value>)',
+            'accent-ink':  'rgb(var(--c-accent-ink) / <alpha-value>)',
+            'accent-wash': 'rgb(var(--c-accent-wash) / <alpha-value>)',
+            pos:         'rgb(var(--c-pos) / <alpha-value>)',
+            'pos-wash':  'rgb(var(--c-pos-wash) / <alpha-value>)',
+            neg:         'rgb(var(--c-neg) / <alpha-value>)',
+            'neg-wash':  'rgb(var(--c-neg-wash) / <alpha-value>)',
           },
           fontFamily: {
-            sans: ['Inter var', 'Inter', 'ui-sans-serif', 'system-ui',
-                   '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue',
-                   'Arial', 'sans-serif'],
-            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas',
-                   'Liberation Mono', 'monospace'],
+            sans: ['"IBM Plex Sans"', 'ui-sans-serif', 'system-ui', 'Segoe UI',
+                   'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+            mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo',
+                   'Consolas', 'monospace'],
           },
-          boxShadow: {
-            card: '0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06)',
+          // Panels are ruled sheets, not floating cards: 2px is the most a
+          // corner gets anywhere in this interface.
+          borderRadius: {
+            none: '0', DEFAULT: '2px', sm: '2px', md: '2px', lg: '2px',
+            xl: '2px', '2xl': '3px', '3xl': '3px', full: '9999px',
           },
         },
       },
@@ -54,22 +75,103 @@
 
   <style type="text/tailwindcss">
     @layer base {
+      /* Light is the primary theme: a paper-grey sheet with a faint khaki bias,
+         deliberately not the warm cream that every generated page reaches for. */
+      :root {
+        --c-ground: 239 240 236;
+        --c-panel: 255 255 255;
+        --c-sunken: 244 245 241;
+        --c-rule: 220 222 216;
+        --c-rule-firm: 197 200 192;
+        --c-ink: 23 25 28;
+        --c-body: 71 77 84;
+        --c-muted: 106 112 120;
+        --c-faint: 154 160 167;
+        /* Accent text runs darker than the fill so 10px small-caps labels clear
+           4.5:1 on the ground; the bright fill below carries the amber identity. */
+        --c-accent: 143 82 0;
+        --c-accent-fill: 233 163 46;
+        --c-accent-ink: 26 19 0;
+        --c-accent-wash: 250 240 220;
+        --c-pos: 31 122 92;
+        --c-pos-wash: 226 241 235;
+        --c-neg: 179 38 30;
+        --c-neg-wash: 250 232 230;
+      }
+
+      /* Dark is the night apron: cool graphite, warm amber. Given the same care
+         as light — not a naive inversion. */
+      .dark {
+        --c-ground: 15 18 21;
+        --c-panel: 23 27 31;
+        --c-sunken: 19 23 27;
+        --c-rule: 38 43 49;
+        --c-rule-firm: 56 63 71;
+        --c-ink: 230 232 234;
+        --c-body: 178 184 191;
+        --c-muted: 150 156 164;
+        --c-faint: 106 113 121;
+        --c-accent: 240 174 69;
+        --c-accent-fill: 240 174 69;
+        --c-accent-ink: 20 16 10;
+        --c-accent-wash: 46 36 18;
+        --c-pos: 79 184 148;
+        --c-pos-wash: 20 43 36;
+        --c-neg: 242 116 105;
+        --c-neg-wash: 51 26 24;
+      }
+
       html { -webkit-text-size-adjust: 100%; }
-      body { @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100; }
-      /* Every number in this app is compared against another number, so they
-         all get fixed-width digits. */
-      .num { font-variant-numeric: tabular-nums; }
-      :focus-visible { @apply outline-none ring-2 ring-accent-500 ring-offset-2 ring-offset-slate-50 dark:ring-offset-slate-950; }
+      body {
+        @apply bg-ground text-ink antialiased;
+        font-feature-settings: 'kern' 1;
+      }
+
+      /* Every number in this app is compared against another number. */
+      .num {
+        @apply font-mono;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.01em;
+      }
+
+      :focus-visible {
+        @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-ground;
+      }
+
       ::-webkit-scrollbar { width: 10px; height: 10px; }
-      ::-webkit-scrollbar-thumb { @apply rounded-full bg-slate-300 dark:bg-slate-700; }
+      ::-webkit-scrollbar-thumb { @apply bg-rule-firm; }
       ::-webkit-scrollbar-track { @apply bg-transparent; }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
     }
+
     @layer components {
-      .skeleton { @apply animate-pulse rounded bg-slate-200 dark:bg-slate-800; }
+      .skeleton { @apply animate-pulse bg-rule; }
+
+      /* Small-caps label: the load-sheet field marker used throughout. */
+      .field-label {
+        @apply font-mono text-[10px] font-medium uppercase text-muted;
+        letter-spacing: 0.11em;
+      }
+
+      /* Apron hazard tape. Marks the standing model-world caveat — the one
+         place in the interface that warns about the work itself. */
+      .hazard-edge {
+        background-image: repeating-linear-gradient(
+          45deg,
+          rgb(var(--c-accent-fill)) 0 5px,
+          transparent 5px 10px
+        );
+      }
     }
   </style>
 
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23158173'/><path d='M7 21h4v3H7zM13.5 15h4v9h-4zM20 9h4v15h-4z' fill='white'/></svg>" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23171b1f'/><rect x='5' y='19' width='4' height='8' fill='%23e9a32e'/><rect x='12' y='13' width='4' height='14' fill='%23e9a32e'/><rect x='19' y='6' width='4' height='21' fill='%23e9a32e'/></svg>" />
 </head>
 
 <body class="h-full">
@@ -86,7 +188,8 @@
     // Pin the classic JSX runtime explicitly. Babel 8's react preset defaults to
     // the automatic runtime, which emits `import` statements that a classic
     // <script> cannot execute; naming the runtime keeps the page working
-    // whichever Babel version the CDN serves.
+    // whichever Babel version the CDN serves. Do not add `data-type` to the
+    // tags below — babel-standalone then skips them silently.
     Babel.registerPreset('acro', {
       presets: [[Babel.availablePresets.react, { runtime: 'classic' }]],
     });

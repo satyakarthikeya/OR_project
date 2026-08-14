@@ -65,14 +65,14 @@
               hint={`baseline ${fmt.num(metric(comparison, 'total_unmet_demand').baseline, 2)}`} />
           </div>
 
-          <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
+          <div className="mt-6 border border-rule">
             <DataTable
               compact
               rowKey={(r) => r.key}
               rows={[headline, ...comparison.metrics]}
               columns={[
                 { key: 'label', header: 'Metric',
-                  className: 'text-slate-900 dark:text-slate-100' },
+                  className: 'text-ink' },
                 { key: 'baseline', header: 'Observed', align: 'right',
                   render: (r) => fmt.num(r.baseline, 2) },
                 { key: 'optimized', header: 'Optimised', align: 'right',
@@ -94,7 +94,7 @@
             </div>
           )}
 
-          <p className="mt-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+          <p className="mt-4 text-xs leading-relaxed text-muted">
             Both columns are scored by the same objective function at the same
             resource totals — the observed allocation is never compared against
             raw recorded KPIs.
@@ -119,12 +119,12 @@
             rows={result.allocation}
             columns={[
               { key: 'terminal', header: 'Terminal',
-                className: 'font-medium text-slate-900 dark:text-slate-100' },
+                className: 'font-medium text-ink' },
               { key: 'baseline_workforce', header: 'Workers now', align: 'right',
                 render: (r) => fmt.num(r.baseline_workforce, 1) },
               { key: 'optimized_workforce', header: 'Workers plan', align: 'right',
                 render: (r) => (
-                  <span className="font-medium text-slate-900 dark:text-slate-100">
+                  <span className="font-medium text-ink">
                     {fmt.num(r.optimized_workforce, 1)}
                   </span>
                 ) },
@@ -134,7 +134,7 @@
                 render: (r) => fmt.num(r.baseline_equipment, 1) },
               { key: 'optimized_equipment', header: 'Equip. plan', align: 'right',
                 render: (r) => (
-                  <span className="font-medium text-slate-900 dark:text-slate-100">
+                  <span className="font-medium text-ink">
                     {fmt.num(r.optimized_equipment, 1)}
                   </span>
                 ) },
@@ -146,10 +146,10 @@
                 render: (r) => fmt.num(r.demand, 1) },
               { key: 'unmet_demand', header: 'Unmet', align: 'right',
                 render: (r) => r.unmet_demand > 0.001
-                  ? <span className="font-medium text-rose-600 dark:text-rose-400">
+                  ? <span className="font-medium text-neg">
                       {fmt.num(r.unmet_demand, 2)}
                     </span>
-                  : <span className="text-slate-400">—</span> },
+                  : <span className="text-faint">—</span> },
               { key: 'optimized_cost', header: 'Cost', align: 'right',
                 render: (r) => fmt.money(r.optimized_cost) },
             ]}
@@ -164,42 +164,40 @@
               compact
               rowKey={(r) => r.name}
               rows={result.duals}
+              // A binding constraint is what limits the plan, so it reads as an
+              // amber edge before any number is parsed.
+              rowStripe={(r) => (r.binding ? 'accent' : null)}
               columns={[
                 { key: 'name', header: 'Constraint',
+                  className: 'font-mono text-xs text-ink' },
+                { key: 'binding', header: 'State',
                   render: (r) => (
-                    <span className="font-mono text-xs text-slate-900 dark:text-slate-100">
-                      {r.name}
+                    <span className={r.binding
+                      ? 'font-mono text-[11px] uppercase tracking-wider text-accent'
+                      : 'font-mono text-[11px] uppercase tracking-wider text-faint'}>
+                      {r.binding ? 'binding' : 'slack'}
                     </span>
                   ) },
-                { key: 'binding', header: 'State',
-                  render: (r) => r.binding
-                    ? <Badge tone="accent">binding</Badge>
-                    : <Badge tone="neutral">slack</Badge> },
                 { key: 'rhs', header: 'RHS', align: 'right',
                   render: (r) => `${r.sense} ${fmt.num(r.rhs, 1)}` },
                 { key: 'slack', header: 'Slack', align: 'right',
                   render: (r) => fmt.num(r.slack, 2) },
                 { key: 'shadow_price', header: 'Shadow price', align: 'right',
                   render: (r) => (
-                    <span className={r.binding
-                      ? 'font-medium text-slate-900 dark:text-slate-100'
-                      : 'text-slate-400'}>
+                    <span className={r.binding ? 'font-medium text-ink' : 'text-faint'}>
                       {fmt.num(r.shadow_price, 4)}
                     </span>
                   ) },
               ]}
             />
-            <div className="border-t border-slate-200 px-4 py-4 dark:border-slate-800">
+            <div className="border-t border-rule-firm px-5 py-4">
               <SectionLabel>Reading the binding constraints</SectionLabel>
-              <ul className="mt-2.5 space-y-2">
+              <ul className="mt-3 space-y-2.5">
                 {result.duals.filter((d) => d.binding).map((d) => (
-                  <li key={d.name} className="flex gap-2.5 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent-600" />
-                    <span>
-                      <span className="font-mono text-xs text-slate-900 dark:text-slate-100">
-                        {d.name}
-                      </span>{' — '}{d.interpretation}
-                    </span>
+                  <li key={d.name}
+                    className="border-l-2 border-accent-fill pl-3 text-[13px] leading-relaxed text-body">
+                    <span className="font-mono text-xs text-ink">{d.name}</span>
+                    {' — '}{d.interpretation}
                   </li>
                 ))}
               </ul>
@@ -220,7 +218,7 @@
                   available={result.resources.budget} />
               )}
             </div>
-            <div className="mt-6 border-t border-slate-200 pt-5 dark:border-slate-800">
+            <div className="mt-6 border-t border-rule pt-5">
               <KeyValueList columns={1} items={[
                 { label: 'Unmet-demand penalty M',
                   value: fmt.num(result.unmet_penalty, 2) },
@@ -281,7 +279,7 @@
             margin: { l: 8, r: 8, t: 8, b: 8 },
           }}
         />
-        <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+        <p className="text-xs leading-relaxed text-muted">
           Bars are workers (left axis); markers are equipment units (right axis).
           The two resources live on different scales, so plotting them on one axis
           would hide the equipment movement entirely.
@@ -326,7 +324,7 @@
             margin: { l: 8, r: 8, t: 8, b: 8 },
           }}
         />
-        <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+        <p className="text-xs leading-relaxed text-muted">
           A bar below its demand marker is unmet demand, carried by the soft
           constraint's slack variable rather than making the model infeasible.
         </p>
@@ -381,21 +379,21 @@
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
           <div>
             <SectionLabel>Swept</SectionLabel>
-            <p className="num mt-1 text-sm text-slate-700 dark:text-slate-300">
+            <p className="num mt-1.5 text-[13px] text-ink">
               {fmt.num(points[0].workforce_total, 1)} →{' '}
               {fmt.num(points[points.length - 1].workforce_total, 1)} workers
             </p>
           </div>
           <div>
             <SectionLabel>Objective range</SectionLabel>
-            <p className="num mt-1 text-sm text-slate-700 dark:text-slate-300">
+            <p className="num mt-1.5 text-[13px] text-ink">
               {fmt.num(Math.min(...points.map((p) => p.objective_value)), 1)} →{' '}
               {fmt.num(Math.max(...points.map((p) => p.objective_value)), 1)}
             </p>
           </div>
           <div>
             <SectionLabel>Average slope</SectionLabel>
-            <p className="num mt-1 text-sm text-slate-700 dark:text-slate-300">
+            <p className="num mt-1.5 text-[13px] text-ink">
               {fmt.num(slope(points), 3)} per worker
             </p>
           </div>

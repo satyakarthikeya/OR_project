@@ -89,24 +89,24 @@
 
   function Header({ page, onNavigate, dataset, theme, onToggleTheme }) {
     return (
-      <header className={cx(
-        'sticky top-0 z-30 border-b border-slate-200 bg-white/85 backdrop-blur',
-        'dark:border-slate-800 dark:bg-slate-950/85'
-      )}>
-        <div className="mx-auto flex h-14 max-w-[1440px] items-center gap-6 px-4 sm:px-6">
+      <header className="sticky top-0 z-30 border-b border-rule-firm bg-panel/95 backdrop-blur">
+        <div className="mx-auto flex h-14 max-w-[1440px] items-center gap-5 px-4 sm:px-6">
           <a href="#/home" className="flex shrink-0 items-center gap-2.5"
              onClick={() => onNavigate('home')}>
-            <span className="grid h-7 w-7 place-items-center rounded-lg bg-accent-600 text-white">
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden="true">
-                <path d="M4 16h3v4H4zM10 10h3v10h-3zM16 4h3v16h-3z" />
-              </svg>
-            </span>
-            <span className="hidden text-sm font-semibold tracking-tight sm:block">
-              Air Cargo <span className="text-slate-400 dark:text-slate-500">/ OR</span>
+            {/* Three rising bars — allocation across terminals, the thing the
+                whole application decides. */}
+            <svg viewBox="0 0 24 24" className="h-5 w-5 text-accent-fill"
+                 fill="currentColor" aria-hidden="true">
+              <rect x="3" y="14" width="4" height="7" />
+              <rect x="10" y="9" width="4" height="12" />
+              <rect x="17" y="3" width="4" height="18" />
+            </svg>
+            <span className="hidden text-[13px] font-semibold uppercase tracking-[0.14em] text-ink sm:block">
+              Dispatch Desk
             </span>
           </a>
 
-          <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+          <nav className="flex h-full min-w-0 flex-1 items-stretch overflow-x-auto"
                aria-label="Primary">
             {PAGES.map((p) => {
               const disabled = p.needsDataset && !dataset;
@@ -118,17 +118,21 @@
                   disabled={disabled}
                   aria-current={active ? 'page' : undefined}
                   className={cx(
-                    'relative whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                    'relative flex items-center whitespace-nowrap px-3.5 font-mono text-[11px]',
+                    'uppercase tracking-[0.09em] transition-colors',
                     disabled
-                      ? 'cursor-not-allowed text-slate-300 dark:text-slate-600'
+                      ? 'cursor-not-allowed text-faint'
                       : active
-                        ? 'text-slate-900 dark:text-slate-50'
-                        : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
+                        ? 'text-ink'
+                        : 'text-muted hover:text-ink'
                   )}
                 >
                   {p.label}
+                  {/* The active tab is marked on the header's own bottom rule,
+                      the way a strip board marks the live position. */}
                   {active && (
-                    <span className="absolute inset-x-3 -bottom-[9px] h-0.5 rounded-full bg-accent-600" />
+                    <span aria-hidden="true"
+                      className="absolute inset-x-0 -bottom-px h-0.5 bg-accent-fill" />
                   )}
                 </button>
               );
@@ -137,22 +141,23 @@
 
           <div className="flex shrink-0 items-center gap-3">
             {dataset && (
-              <span className="hidden items-center gap-2 md:flex">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                <span className="max-w-[180px] truncate text-xs text-slate-500 dark:text-slate-400"
-                      title={`${dataset.name} · ${dataset.dataset_id}`}>
-                  {dataset.name}
+              // A load tag: mono, ruled, carrying the id every request quotes.
+              <span className="hidden items-center gap-2 border border-rule px-2 py-1 md:flex"
+                    title={`${dataset.name} · ${dataset.dataset_id}`}>
+                <span className="h-1.5 w-1.5 bg-pos" />
+                <span className="max-w-[150px] truncate font-mono text-[10px] uppercase tracking-wider text-muted">
+                  {dataset.dataset_id}
                 </span>
               </span>
             )}
             <a href="/docs" target="_blank" rel="noreferrer"
-               className="hidden text-xs font-medium text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 sm:block">
-              API docs
+               className="hidden font-mono text-[11px] uppercase tracking-[0.09em] text-muted hover:text-ink sm:block">
+              API
             </a>
             <button
               onClick={onToggleTheme}
               aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-              className="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+              className="p-1.5 text-muted transition-colors hover:bg-sunken hover:text-ink"
             >
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} className="h-4 w-4" />
             </button>
@@ -164,9 +169,9 @@
 
   function Footer() {
     return (
-      <footer className="mt-16 border-t border-slate-200 py-8 dark:border-slate-800">
+      <footer className="mt-16 border-t border-rule py-8">
         <div className="mx-auto max-w-[1440px] px-4 sm:px-6">
-          <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+          <p className="text-xs leading-relaxed text-muted">
             Operations Research course project · FastAPI + PuLP/CBC + React.
             Dataset: Kaggle <em>Air Cargo Resource Allocation Data</em> (CC0), 5,000
             synthetic records. Model formulations and stated assumptions are
@@ -229,7 +234,7 @@
       content = (
         <div className="space-y-4">
           <div className="skeleton h-8 w-64" />
-          <div className="skeleton h-48 w-full rounded-xl" />
+          <div className="skeleton h-48 w-full" />
         </div>
       );
     } else if (blocked) {

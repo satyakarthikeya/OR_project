@@ -2,12 +2,19 @@
  * The shared component vocabulary.
  *
  * Built before any page markup, on purpose: page-level ad-hoc styling is what
- * makes a hand-rolled UI look inconsistent (AGENT.md, "Frontend rules"). Pages
- * compose from these and never reach for a raw colour or spacing value.
+ * makes a hand-rolled UI look inconsistent (AGENT.md, "Frontend rules").
  *
- * House rules encoded here: one accent colour, one neutral scale, rounded-xl
- * surfaces, p-5/p-6 padding, gap-6 grids, two heading sizes, one body size,
- * fixed-width digits on every number.
+ * The design is a dispatch desk, not a card dashboard. House rules:
+ *   · Panels are ruled sheets — square corners, hairline borders, no shadows.
+ *   · Colour comes only from semantic tokens (`bg-panel`, `text-ink`,
+ *     `border-rule`, `text-accent`, `text-pos`, `text-neg`). Never a raw
+ *     palette value, never a `dark:` colour pair — the tokens carry the theme.
+ *   · Signal amber is the accent and is spent only on active state, the primary
+ *     action, focus, and the lead chart series. Positive/negative are jade and
+ *     brick, kept clear of the accent.
+ *   · Every numeral is Plex Mono with tabular figures, via `.num`.
+ *   · Structure is information: a left stripe means binding, a hazard edge
+ *     means the standing caveat. Decoration that says nothing is omitted.
  */
 (function () {
   const { useState, useEffect, useRef, useMemo, useCallback, createContext,
@@ -74,7 +81,7 @@
       spinner: 'M12 3a9 9 0 1 0 9 9',
     };
     return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"
            strokeLinecap="round" strokeLinejoin="round" className={className}
            aria-hidden="true">
         <path d={paths[name] || paths.info} />
@@ -88,24 +95,29 @@
 
   /* -------------------------------------------------------------- surfaces */
 
-  const Card = ({ title, subtitle, actions, children, className, bodyClass, dense }) => (
-    <section className={cx(
-      'rounded-xl border border-slate-200 bg-white shadow-card',
-      'dark:border-slate-800 dark:bg-slate-900', className
-    )}>
+  /**
+   * A ruled sheet. The header is separated by a hairline that runs the full
+   * width, the way a form divides its fields — not by whitespace alone.
+   */
+  const Card = ({ title, subtitle, actions, children, className, bodyClass,
+                  dense, stripe }) => (
+    <section className={cx('relative border border-rule bg-panel', className)}>
+      {stripe && (
+        <span aria-hidden="true"
+          className={cx('absolute inset-y-0 left-0 w-[3px]',
+            stripe === 'accent' ? 'bg-accent-fill'
+              : stripe === 'neg' ? 'bg-neg' : 'bg-pos')} />
+      )}
       {(title || actions) && (
-        <header className={cx(
-          'flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4',
-          'dark:border-slate-800'
-        )}>
+        <header className="flex items-start justify-between gap-4 border-b border-rule px-5 py-3.5">
           <div className="min-w-0">
             {title && (
-              <h2 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+              <h2 className="text-[13px] font-semibold tracking-tight text-ink">
                 {title}
               </h2>
             )}
             {subtitle && (
-              <p className="mt-1 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+              <p className="mt-1 max-w-prose text-[13px] leading-relaxed text-muted">
                 {subtitle}
               </p>
             )}
@@ -118,41 +130,33 @@
   );
 
   const SectionLabel = ({ children, className }) => (
-    <h3 className={cx(
-      'text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500',
-      'dark:text-slate-400', className
-    )}>
-      {children}
-    </h3>
+    <h3 className={cx('field-label', className)}>{children}</h3>
   );
 
   const PageHeader = ({ eyebrow, title, children, actions }) => (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-      <div className="max-w-3xl">
-        {eyebrow && (
-          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-accent-600 dark:text-accent-400">
-            {eyebrow}
-          </p>
-        )}
-        <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-          {title}
-        </h1>
-        {children && (
-          <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-            {children}
-          </p>
-        )}
+    <div className="mb-6 border-b border-rule-firm pb-5">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="max-w-2xl">
+          {eyebrow && <p className="field-label text-accent">{eyebrow}</p>}
+          <h1 className="mt-2 text-[22px] font-semibold leading-tight tracking-tight text-ink"
+              style={{ textWrap: 'balance' }}>
+            {title}
+          </h1>
+          {children && (
+            <p className="mt-2.5 text-sm leading-relaxed text-body">{children}</p>
+          )}
+        </div>
+        {actions}
       </div>
-      {actions}
     </div>
   );
 
   /* --------------------------------------------------------------- inputs */
 
   const BUTTON_VARIANTS = {
-    primary: 'bg-accent-600 text-white hover:bg-accent-700 disabled:bg-accent-600/50 dark:bg-accent-600 dark:hover:bg-accent-500',
-    secondary: 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800',
-    ghost: 'text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800',
+    primary: 'bg-accent-fill text-accent-ink hover:brightness-95 disabled:opacity-50',
+    secondary: 'border border-rule-firm bg-panel text-ink hover:bg-sunken disabled:opacity-50',
+    ghost: 'text-muted hover:bg-sunken hover:text-ink disabled:opacity-50',
   };
 
   const Button = ({ variant = 'secondary', size = 'md', busy, icon, children,
@@ -161,9 +165,9 @@
       {...rest}
       disabled={rest.disabled || busy}
       className={cx(
-        'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors',
+        'inline-flex items-center justify-center gap-2 font-medium transition-colors',
         'disabled:cursor-not-allowed',
-        size === 'sm' ? 'px-2.5 py-1.5 text-xs' : 'px-3.5 py-2 text-sm',
+        size === 'sm' ? 'px-2.5 py-1.5 text-xs' : 'px-4 py-2 text-[13px]',
         BUTTON_VARIANTS[variant], className
       )}
     >
@@ -174,12 +178,10 @@
 
   const SliderRow = ({ label, hint, value, min, max, step, onChange, format,
                        disabled }) => (
-    <div className={cx('py-3', disabled && 'opacity-50')}>
+    <div className={cx('py-3.5', disabled && 'opacity-40')}>
       <div className="flex items-baseline justify-between gap-3">
-        <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
-          {label}
-        </label>
-        <span className="num text-sm font-semibold text-slate-900 dark:text-slate-100">
+        <label className="text-[13px] font-medium text-ink">{label}</label>
+        <span className="num text-[13px] font-medium text-ink">
           {format ? format(value) : value}
         </span>
       </div>
@@ -187,34 +189,28 @@
         type="range" min={min} max={max} step={step} value={value}
         disabled={disabled}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className={cx(
-          'mt-2 h-1.5 w-full cursor-pointer appearance-none rounded-full',
-          'bg-slate-200 accent-accent-600 dark:bg-slate-700'
-        )}
+        className="mt-2.5 h-1 w-full cursor-pointer appearance-none bg-rule-firm accent-accent-fill"
       />
       {hint && (
-        <p className="mt-1.5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-          {hint}
-        </p>
+        <p className="mt-2 text-xs leading-relaxed text-muted">{hint}</p>
       )}
     </div>
   );
 
+  /** Square segmented control — a row of stops on a rule, not a pill group. */
   const SegmentedControl = ({ options, value, onChange, className }) => (
-    <div className={cx(
-      'inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5',
-      'dark:border-slate-800 dark:bg-slate-800/60', className
-    )}>
-      {options.map((option) => (
+    <div className={cx('inline-flex border border-rule-firm', className)}>
+      {options.map((option, index) => (
         <button
-          key={option.value}
+          key={String(option.value)}
           onClick={() => onChange(option.value)}
           aria-pressed={value === option.value}
           className={cx(
-            'rounded-[7px] px-3 py-1.5 text-xs font-medium transition-colors',
+            'flex-1 whitespace-nowrap px-3 py-1.5 text-xs font-medium transition-colors',
+            index > 0 && 'border-l border-rule-firm',
             value === option.value
-              ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-50'
-              : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+              ? 'bg-accent-fill text-accent-ink'
+              : 'bg-panel text-muted hover:bg-sunken hover:text-ink'
           )}
         >
           {option.label}
@@ -224,25 +220,24 @@
   );
 
   const Toggle = ({ label, hint, checked, onChange }) => (
-    <div className="flex items-start justify-between gap-4 py-3">
+    <div className="flex items-start justify-between gap-4 py-3.5">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{label}</p>
-        {hint && (
-          <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-            {hint}
-          </p>
-        )}
+        <p className="text-[13px] font-medium text-ink">{label}</p>
+        {hint && <p className="mt-1.5 text-xs leading-relaxed text-muted">{hint}</p>}
       </div>
       <button
         role="switch" aria-checked={checked} aria-label={label}
         onClick={() => onChange(!checked)}
         className={cx(
-          'relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors',
-          checked ? 'bg-accent-600' : 'bg-slate-300 dark:bg-slate-700'
+          'relative mt-0.5 h-5 w-9 shrink-0 border transition-colors',
+          checked
+            ? 'border-accent-fill bg-accent-fill'
+            : 'border-rule-firm bg-sunken'
         )}
       >
         <span
-          className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform"
+          className={cx('absolute left-0.5 top-0.5 h-3.5 w-3.5 transition-transform',
+            checked ? 'bg-accent-ink' : 'bg-rule-firm')}
           style={{ transform: checked ? 'translateX(16px)' : 'translateX(0)' }}
         />
       </button>
@@ -257,29 +252,27 @@
       onChange(next);
     };
     return (
-      <div className="py-3">
+      <div className="py-3.5">
         <div className="flex items-baseline justify-between gap-3">
-          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
-            {label}
-          </label>
+          <label className="text-[13px] font-medium text-ink">{label}</label>
           {selected.length > 0 && (
             <button onClick={() => onChange([])}
-              className="text-xs text-slate-500 underline-offset-2 hover:underline dark:text-slate-400">
+              className="font-mono text-[10px] uppercase tracking-wider text-muted underline-offset-2 hover:text-ink hover:underline">
               clear
             </button>
           )}
         </div>
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        <div className="mt-2.5 flex flex-wrap gap-1">
           {options.map((option) => {
             const active = selected.includes(option);
             return (
               <button
                 key={option} onClick={() => toggle(option)} aria-pressed={active}
                 className={cx(
-                  'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
+                  'border px-2.5 py-1 font-mono text-[11px] transition-colors',
                   active
-                    ? 'border-accent-600 bg-accent-600 text-white'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-600'
+                    ? 'border-accent-fill bg-accent-fill text-accent-ink'
+                    : 'border-rule-firm bg-panel text-body hover:bg-sunken hover:text-ink'
                 )}
               >
                 {option}
@@ -287,8 +280,8 @@
             );
           })}
         </div>
-        <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-          {selected.length === 0 ? (hint || 'All included') : `${selected.length} selected`}
+        <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted">
+          {selected.length === 0 ? (hint || 'all included') : `${selected.length} selected`}
         </p>
       </div>
     );
@@ -297,49 +290,69 @@
   /* -------------------------------------------------------------- feedback */
 
   const TONES = {
-    neutral: 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300',
-    accent: 'border-accent-200 bg-accent-50 text-accent-900 dark:border-accent-900 dark:bg-accent-950/50 dark:text-accent-100',
-    warn: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-100',
-    danger: 'border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-100',
-    good: 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-100',
+    neutral: 'border-rule bg-sunken text-body',
+    accent: 'border-accent-fill/50 bg-accent-wash text-ink',
+    warn: 'border-accent-fill/50 bg-accent-wash text-ink',
+    danger: 'border-neg/40 bg-neg-wash text-ink',
+    good: 'border-pos/40 bg-pos-wash text-ink',
+  };
+
+  const ICON_TONES = {
+    neutral: 'text-muted', accent: 'text-accent', warn: 'text-accent',
+    danger: 'text-neg', good: 'text-pos',
   };
 
   const Callout = ({ tone = 'neutral', icon = 'info', title, children, className }) => (
-    <div className={cx('rounded-xl border px-4 py-3', TONES[tone], className)}>
+    <div className={cx('border px-4 py-3', TONES[tone], className)}>
       <div className="flex gap-3">
-        <Icon name={icon} className="mt-0.5 h-4 w-4 shrink-0 opacity-70" />
-        <div className="min-w-0 text-sm leading-relaxed">
-          {title && <p className="font-semibold">{title}</p>}
-          <div className={title ? 'mt-1 opacity-90' : 'opacity-90'}>{children}</div>
+        <Icon name={icon} className={cx('mt-0.5 h-4 w-4 shrink-0', ICON_TONES[tone])} />
+        <div className="min-w-0 text-[13px] leading-relaxed">
+          {title && <p className="font-semibold text-ink">{title}</p>}
+          <div className={title ? 'mt-1' : ''}>{children}</div>
         </div>
       </div>
     </div>
   );
 
   const BADGE_TONES = {
-    neutral: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
-    accent: 'bg-accent-100 text-accent-800 dark:bg-accent-950 dark:text-accent-300',
-    good: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
-    warn: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
-    danger: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300',
+    neutral: 'border-rule-firm text-muted',
+    accent: 'border-accent-fill bg-accent-fill text-accent-ink',
+    good: 'border-pos/50 bg-pos-wash text-pos',
+    warn: 'border-accent-fill/60 bg-accent-wash text-accent',
+    danger: 'border-neg/50 bg-neg-wash text-neg',
   };
 
   const Badge = ({ tone = 'neutral', children, className }) => (
     <span className={cx(
-      'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium',
+      'inline-flex items-center border px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wider',
       BADGE_TONES[tone], className
     )}>
       {children}
     </span>
   );
 
-  /** The standing honesty banner. Never remove it — see AGENT.md. */
+  /**
+   * The standing honesty banner (AGENT.md — never remove it).
+   * Rendered as apron hazard tape: this is the one notice in the interface that
+   * warns about the validity of the work itself, so it gets the one device
+   * nothing else uses.
+   */
   const CaveatBanner = ({ text }) => (
-    <Callout tone="warn" icon="alert" title="Model-world results" className="mb-6">
-      {text || 'The dataset is synthetic and its columns are mutually uncorrelated, ' +
-        'so coefficients are derived from stated assumptions rather than fitted. ' +
-        'Improvements are gains under those assumptions, not validated operational gains.'}
-    </Callout>
+    <div className="mb-6 flex border border-rule bg-panel">
+      <span aria-hidden="true" className="hazard-edge w-2 shrink-0" />
+      <div className="flex gap-3 px-4 py-3">
+        <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+        <div className="text-[13px] leading-relaxed text-body">
+          <p className="field-label text-accent">Model-world results</p>
+          <p className="mt-1.5">
+            {text || 'The dataset is synthetic and its columns are mutually ' +
+              'uncorrelated, so coefficients are derived from stated assumptions ' +
+              'rather than fitted. Improvements are gains under those ' +
+              'assumptions, not validated operational gains.'}
+          </p>
+        </div>
+      </div>
+    </div>
   );
 
   const STATUS_TONE = {
@@ -353,15 +366,15 @@
       icon={status === 'Optimal' ? 'check' : 'alert'}
       title={status === 'Optimal' ? 'Solved to optimality' : `Solver status: ${status}`}
     >
-      <p>{message}</p>
+      <p className="text-body">{message}</p>
       {suggestions && suggestions.length > 0 && (
-        <ul className="mt-2 list-disc space-y-1 pl-5">
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-body">
           {suggestions.map((s, i) => <li key={i}>{s}</li>)}
         </ul>
       )}
       {seconds !== undefined && status === 'Optimal' && (
-        <p className="num mt-1 text-xs opacity-70">
-          CBC solved in {fmt.num(seconds, 3)} s
+        <p className="num mt-1.5 text-[11px] text-muted">
+          CBC · {fmt.num(seconds, 3)} s
         </p>
       )}
     </Callout>
@@ -373,14 +386,12 @@
 
   const EmptyState = ({ icon = 'database', title, children, action }) => (
     <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
-      <div className="rounded-xl bg-slate-100 p-3 text-slate-400 dark:bg-slate-800 dark:text-slate-500">
-        <Icon name={icon} className="h-6 w-6" />
+      <div className="border border-rule-firm p-3 text-faint">
+        <Icon name={icon} className="h-5 w-5" />
       </div>
-      <p className="mt-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
-        {title}
-      </p>
+      <p className="mt-4 text-[13px] font-semibold text-ink">{title}</p>
       {children && (
-        <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+        <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-muted">
           {children}
         </p>
       )}
@@ -390,31 +401,20 @@
 
   /* ----------------------------------------------------------------- data */
 
+  /** A readout block: field label over a mono figure, ruled like a load sheet. */
   const StatTile = ({ label, value, unit, hint, tone = 'neutral' }) => (
-    <div className={cx(
-      'rounded-xl border border-slate-200 bg-white px-4 py-3.5 shadow-card',
-      'dark:border-slate-800 dark:bg-slate-900'
-    )}>
-      <p className="truncate text-xs font-medium text-slate-500 dark:text-slate-400">
-        {label}
-      </p>
-      <p className="num mt-1.5 flex items-baseline gap-1.5">
-        <span className={cx(
-          'text-2xl font-semibold tracking-tight',
-          tone === 'good' ? 'text-emerald-600 dark:text-emerald-400'
-            : tone === 'danger' ? 'text-rose-600 dark:text-rose-400'
-            : 'text-slate-900 dark:text-slate-50'
-        )}>
+    <div className="border border-rule bg-panel px-4 py-3">
+      <p className="field-label truncate">{label}</p>
+      <p className="num mt-2 flex items-baseline gap-1.5">
+        <span className={cx('text-[26px] font-medium leading-none tracking-tight',
+          tone === 'good' ? 'text-pos' : tone === 'danger' ? 'text-neg' : 'text-ink')}>
           {value}
         </span>
-        {unit && (
-          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-            {unit}
-          </span>
-        )}
+        {unit && <span className="text-[11px] text-muted">{unit}</span>}
       </p>
       {hint && (
-        <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400" title={hint}>
+        <p className="mt-2 truncate border-t border-rule pt-2 text-[11px] text-muted"
+           title={hint}>
           {hint}
         </p>
       )}
@@ -426,29 +426,26 @@
     const neutral = better === 'neutral' || Math.abs(value) < 1e-9;
     const good = better === 'up' ? value > 0 : value < 0;
     return (
-      <span className={cx(
-        'num inline-flex items-baseline gap-1.5 font-medium',
-        neutral ? 'text-slate-500 dark:text-slate-400'
-          : good ? 'text-emerald-600 dark:text-emerald-400'
-          : 'text-rose-600 dark:text-rose-400'
-      )}>
+      <span className={cx('num inline-flex items-baseline gap-1.5 font-medium',
+        neutral ? 'text-muted' : good ? 'text-pos' : 'text-neg')}>
         {fmt.signed(value, digits)}
         {percent !== null && percent !== undefined && (
-          <span className="text-xs opacity-70">({fmt.percent(percent)})</span>
+          <span className="text-[11px] opacity-80">({fmt.percent(percent)})</span>
         )}
       </span>
     );
   };
 
   /**
-   * Columns: { key, header, align, width, render(row), className, sub }.
-   * Numeric columns get fixed-width digits and right alignment by default.
+   * Columns: { key, header, align, render(row), className }.
+   * `rowStripe(row)` returns 'accent' | 'neg' | 'pos' | null to mark a row's
+   * state in form as well as in number.
    */
   const DataTable = ({ columns, rows, rowKey, footer, emptyMessage, compact,
-                       headerClass }) => {
+                       headerClass, rowStripe }) => {
     if (!rows || rows.length === 0) {
       return (
-        <p className="px-5 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+        <p className="px-5 py-8 text-center text-[13px] text-muted">
           {emptyMessage || 'No rows'}
         </p>
       );
@@ -456,46 +453,55 @@
     const cell = compact ? 'px-3 py-2' : 'px-4 py-2.5';
     return (
       <div className="overflow-x-auto">
-        <table className="w-full min-w-full text-sm">
+        <table className="w-full min-w-full text-[13px]">
           <thead>
-            <tr className="border-b border-slate-200 dark:border-slate-800">
-              {columns.map((col) => (
+            <tr className="border-b border-rule-firm">
+              {columns.map((col, index) => (
                 <th key={col.key} scope="col"
                   className={cx(
-                    cell, 'whitespace-nowrap text-[11px] font-semibold uppercase tracking-[0.06em]',
-                    'text-slate-500 dark:text-slate-400',
+                    cell, 'whitespace-nowrap font-mono text-[10px] font-medium uppercase',
+                    'text-muted',
                     col.align === 'right' ? 'text-right' : 'text-left',
-                    // Headers carrying Greek symbols must opt out: `uppercase`
+                    rowStripe && index === 0 && 'pl-5',
+                    // Headers carrying Greek symbols opt out: `uppercase`
                     // silently turns α into Α and γ into Γ.
                     headerClass
-                  )}>
+                  )}
+                  style={{ letterSpacing: '0.09em' }}>
                   {col.header}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
-            {rows.map((row, index) => (
-              <tr key={rowKey ? rowKey(row) : index}
-                className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                {columns.map((col) => (
-                  <td key={col.key}
-                    className={cx(
-                      cell, 'whitespace-nowrap',
-                      col.align === 'right' ? 'num text-right' : 'text-left',
-                      col.className || 'text-slate-700 dark:text-slate-300'
-                    )}>
-                    {col.render ? col.render(row, index) : row[col.key]}
-                  </td>
-                ))}
-              </tr>
-            ))}
+          <tbody className="divide-y divide-rule">
+            {rows.map((row, index) => {
+              const stripe = rowStripe && rowStripe(row);
+              return (
+                <tr key={rowKey ? rowKey(row) : index}
+                  className="relative transition-colors hover:bg-sunken">
+                  {columns.map((col, colIndex) => (
+                    <td key={col.key}
+                      className={cx(
+                        cell, 'whitespace-nowrap',
+                        col.align === 'right' ? 'num text-right' : 'text-left',
+                        rowStripe && colIndex === 0 && 'relative pl-5',
+                        col.className || 'text-body'
+                      )}>
+                      {rowStripe && colIndex === 0 && (
+                        <span aria-hidden="true"
+                          className={cx('absolute inset-y-0 left-0 w-[3px]',
+                            stripe === 'accent' ? 'bg-accent-fill'
+                              : stripe === 'neg' ? 'bg-neg'
+                              : stripe === 'pos' ? 'bg-pos' : 'bg-transparent')} />
+                      )}
+                      {col.render ? col.render(row, index) : row[col.key]}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
           </tbody>
-          {footer && (
-            <tfoot className="border-t border-slate-200 dark:border-slate-800">
-              {footer}
-            </tfoot>
-          )}
+          {footer && <tfoot className="border-t border-rule-firm">{footer}</tfoot>}
         </table>
       </div>
     );
@@ -503,14 +509,12 @@
 
   /** Label/value pairs for parameter and assumption panels. */
   const KeyValueList = ({ items, columns = 2 }) => (
-    <dl className={cx(
-      'grid gap-x-6 gap-y-3',
-      columns === 3 ? 'sm:grid-cols-3' : columns === 2 ? 'sm:grid-cols-2' : ''
-    )}>
+    <dl className={cx('grid gap-x-8 gap-y-4',
+      columns === 3 ? 'sm:grid-cols-3' : columns === 2 ? 'sm:grid-cols-2' : '')}>
       {items.map((item) => (
         <div key={item.label} className="min-w-0">
-          <dt className="text-xs text-slate-500 dark:text-slate-400">{item.label}</dt>
-          <dd className="num mt-0.5 truncate text-sm font-medium text-slate-900 dark:text-slate-100"
+          <dt className="field-label truncate">{item.label}</dt>
+          <dd className="num mt-1 truncate text-[13px] font-medium text-ink"
               title={String(item.value)}>
             {item.value}
           </dd>
@@ -519,26 +523,26 @@
     </dl>
   );
 
-  /** A progress bar for "used out of available". */
+  /** "Used out of available", with the bar turning amber once it binds. */
   const UtilizationBar = ({ label, used, available, unit, digits = 1 }) => {
     const pct = available > 0 ? Math.min(100, (used / available) * 100) : 0;
     const tight = pct > 99.5;
     return (
       <div>
         <div className="flex items-baseline justify-between gap-3">
-          <span className="text-sm text-slate-600 dark:text-slate-300">{label}</span>
-          <span className="num text-sm font-medium text-slate-900 dark:text-slate-100">
+          <span className="text-[13px] text-body">{label}</span>
+          <span className="num text-[13px] font-medium text-ink">
             {fmt.num(used, digits)} / {fmt.num(available, digits)}
-            {unit && <span className="ml-1 text-xs text-slate-500">{unit}</span>}
+            {unit && <span className="ml-1 text-[11px] text-muted">{unit}</span>}
           </span>
         </div>
-        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-          <div className={cx('h-full rounded-full transition-all',
-            tight ? 'bg-accent-600' : 'bg-slate-400 dark:bg-slate-600')}
+        <div className="mt-2 h-1.5 w-full bg-sunken ring-1 ring-inset ring-rule">
+          <div className={cx('h-full transition-all',
+            tight ? 'bg-accent-fill' : 'bg-rule-firm')}
             style={{ width: `${pct}%` }} />
         </div>
-        <p className="num mt-1 text-xs text-slate-500 dark:text-slate-400">
-          {fmt.num(pct, 1)}% used{tight ? ' — binding' : ''}
+        <p className="num mt-1.5 text-[11px] text-muted">
+          {fmt.num(pct, 1)}% used{tight ? ' · binding' : ''}
         </p>
       </div>
     );
@@ -546,20 +550,30 @@
 
   /* --------------------------------------------------------------- charts */
 
-  /** Plotly palette and layout defaults, resolved per theme. */
+  /**
+   * Plotly palette and layout defaults, resolved per theme.
+   *
+   * The only place in the frontend that holds literal colour values: Plotly
+   * takes concrete strings and cannot read the CSS variables the rest of the
+   * interface is built on. These mirror the tokens in index.html — change one
+   * and change the other. The lead series is the accent; comparison series stay
+   * neutral, so amber always means "this is the thing being decided".
+   */
   function chartTheme(theme) {
     const dark = theme === 'dark';
     return {
       dark,
-      font: dark ? '#cbd5e1' : '#475569',
-      grid: dark ? 'rgba(148,163,184,0.16)' : 'rgba(100,116,139,0.16)',
-      zero: dark ? 'rgba(148,163,184,0.35)' : 'rgba(100,116,139,0.3)',
-      accent: dark ? '#41bda7' : '#158173',
-      muted: dark ? '#64748b' : '#94a3b8',
+      font: dark ? '#B2B8BF' : '#474D54',
+      grid: dark ? 'rgba(150,156,164,0.14)' : 'rgba(106,112,120,0.14)',
+      zero: dark ? 'rgba(150,156,164,0.3)' : 'rgba(106,112,120,0.28)',
+      accent: dark ? '#F0AE45' : '#D9902A',
+      muted: dark ? '#5A636C' : '#AFB4AC',
+      pos: dark ? '#4FB894' : '#1F7A5C',
+      neg: dark ? '#F27469' : '#B3261E',
       series: dark
-        ? ['#41bda7', '#94a3b8', '#f0b429', '#f87171', '#818cf8']
-        : ['#158173', '#94a3b8', '#d97706', '#e11d48', '#6366f1'],
-      hoverBg: dark ? '#1e293b' : '#ffffff',
+        ? ['#F0AE45', '#5A636C', '#4FB894', '#F27469', '#7FA8C9']
+        : ['#D9902A', '#AFB4AC', '#1F7A5C', '#B3261E', '#41688A'],
+      hoverBg: dark ? '#171B1F' : '#FFFFFF',
     };
   }
 
@@ -579,19 +593,22 @@
         gridcolor: t.grid,
         zerolinecolor: t.zero,
         linecolor: t.grid,
-        tickfont: { size: 11 },
+        tickfont: { size: 10, family: '"IBM Plex Mono", monospace' },
         automargin: true,
       };
       const merged = {
         margin: { l: 8, r: 8, t: 8, b: 8 },
         paper_bgcolor: 'transparent',
         plot_bgcolor: 'transparent',
-        font: { color: t.font, size: 12,
-                family: 'Inter, ui-sans-serif, system-ui, sans-serif' },
+        font: { color: t.font, size: 11,
+                family: '"IBM Plex Sans", system-ui, sans-serif' },
         colorway: t.series,
-        hoverlabel: { bgcolor: t.hoverBg, bordercolor: t.grid,
-                      font: { color: t.font, size: 12 } },
-        legend: { orientation: 'h', y: -0.18, x: 0, font: { size: 11 } },
+        hoverlabel: {
+          bgcolor: t.hoverBg, bordercolor: t.grid,
+          font: { color: t.font, size: 11,
+                  family: '"IBM Plex Mono", monospace' },
+        },
+        legend: { orientation: 'h', y: -0.2, x: 0, font: { size: 10 } },
         ...layout,
         xaxis: { ...axis, ...(layout && layout.xaxis) },
         yaxis: { ...axis, ...(layout && layout.yaxis) },
@@ -635,7 +652,9 @@
 
   const ErrorState = ({ error, onRetry }) => (
     <Callout tone="danger" icon="alert" title="Something went wrong">
-      <p>{error && error.message ? error.message : String(error)}</p>
+      <p className="text-body">
+        {error && error.message ? error.message : String(error)}
+      </p>
       {onRetry && (
         <Button variant="secondary" size="sm" className="mt-3" onClick={onRetry}>
           Try again

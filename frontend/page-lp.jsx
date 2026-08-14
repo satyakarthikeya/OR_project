@@ -198,13 +198,13 @@
             {!solve.data && !solve.error && !solve.loading && (
               <Card>
                 <div className="flex flex-col items-center px-6 py-10 text-center">
-                  <div className="rounded-xl bg-slate-100 p-3 text-slate-400 dark:bg-slate-800 dark:text-slate-500">
+                  <div className="border border-rule-firm p-3 text-faint">
                     <Icon name="play" className="h-6 w-6" />
                   </div>
-                  <p className="mt-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  <p className="mt-4 text-sm font-semibold text-ink">
                     No solve yet
                   </p>
-                  <p className="mt-1.5 max-w-md text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                  <p className="mt-1.5 max-w-md text-sm leading-relaxed text-muted">
                     The parameters above are already derived for this scenario.
                     Solving runs CBC once and compares the result against the
                     observed allocation under the same objective function.
@@ -236,7 +236,7 @@
         }
         bodyClass="p-0"
       >
-        <div className="border-b border-slate-200 px-5 pt-3 dark:border-slate-800">
+        <div className="border-b border-rule px-5 pt-3">
           <SegmentedControl
             className="w-full"
             value={tab} onChange={setTab}
@@ -248,7 +248,7 @@
           />
         </div>
 
-        <div className="divide-y divide-slate-100 px-5 dark:divide-slate-800/70">
+        <div className="divide-y divide-rule px-5">
           {tab === 'scenario' && (
             <React.Fragment>
               {!vocab ? (
@@ -274,7 +274,7 @@
                 </React.Fragment>
               )}
               <div className="py-3">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                <label className="text-sm font-medium text-ink">
                   Hour of day
                 </label>
                 <div className="mt-2">
@@ -286,7 +286,7 @@
                 </div>
               </div>
               <div className="py-3">
-                <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                <p className="text-xs leading-relaxed text-muted">
                   {params
                     ? `${fmt.int(params.n_records)} records in this slice, across ${params.terminals.length} terminal(s).`
                     : 'Deriving…'}
@@ -337,7 +337,7 @@
           {tab === 'resources' && (
             <React.Fragment>
               <div className="py-3">
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                <label className="text-sm font-medium text-ink">
                   Objective
                 </label>
                 <div className="mt-2">
@@ -417,7 +417,7 @@
         actions={
           <div className="flex items-center gap-2">
             {state.loading && (
-              <span className="text-xs text-slate-400">updating…</span>
+              <span className="text-xs text-faint">updating…</span>
             )}
             <Button size="sm" variant="ghost"
               onClick={() => setShowDerivation((v) => !v)}>
@@ -437,14 +437,14 @@
             headerClass="normal-case tracking-normal"
             columns={[
               { key: 'terminal', header: 'Terminal',
-                className: 'font-medium text-slate-900 dark:text-slate-100' },
+                className: 'font-medium text-ink' },
               { key: 'alpha', header: 'α per worker', align: 'right',
                 render: (r) => fmt.num(r.alpha, 3) },
               { key: 'beta', header: 'β per unit', align: 'right',
                 render: (r) => fmt.num(r.beta, 3) },
               { key: 'congestion', header: 'γ', align: 'right',
                 render: (r) => (
-                  <span className={congestionOn ? '' : 'text-slate-400'}>
+                  <span className={congestionOn ? '' : 'text-faint'}>
                     {fmt.num(r.congestion, 3)}
                   </span>
                 ) },
@@ -464,7 +464,7 @@
           />
         </div>
 
-        <div className="border-t border-slate-200 px-5 py-4 dark:border-slate-800">
+        <div className="border-t border-rule px-5 py-4">
           <KeyValueList
             columns={3}
             items={[
@@ -507,25 +507,25 @@
         )}
 
         {showDerivation && (
-          <div className="border-t border-slate-200 px-5 py-5 dark:border-slate-800">
+          <div className="border-t border-rule px-5 py-5">
             <SectionLabel>Derivation</SectionLabel>
             <dl className="mt-3 space-y-4">
               {params.derivation.map((note) => (
                 <div key={note.symbol}
-                  className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
+                  className="border-l-2 border-accent-fill bg-sunken py-3 pl-4 pr-4">
                   <dt className="flex flex-wrap items-baseline gap-2">
-                    <span className="font-mono text-sm font-semibold text-accent-700 dark:text-accent-400">
+                    <span className="font-mono text-sm font-semibold text-accent">
                       {note.symbol}
                     </span>
-                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                    <span className="text-sm font-medium text-ink">
                       {note.name}
                     </span>
                   </dt>
                   <dd className="mt-2">
-                    <code className="block overflow-x-auto rounded bg-white px-3 py-2 font-mono text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    <code className="block overflow-x-auto rounded bg-panel px-3 py-2 font-mono text-xs text-body">
                       {note.formula}
                     </code>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                    <p className="mt-2 text-sm leading-relaxed text-muted">
                       {note.explanation}
                     </p>
                   </dd>

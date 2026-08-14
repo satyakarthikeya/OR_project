@@ -77,7 +77,7 @@
         >
           Two optimisation models over one shared data layer, solved with PuLP/CBC
           and served by FastAPI. Load the dataset to begin — every later screen
-          works from the <code className="rounded bg-slate-200 px-1 py-0.5 text-xs dark:bg-slate-800">dataset_id</code> it
+          works from the <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[11px]">dataset_id</code> it
           returns.
         </PageHeader>
 
@@ -93,7 +93,7 @@
               <div>
                 <div className="flex flex-wrap items-center gap-3">
                   <Badge tone="good">Loaded</Badge>
-                  <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                  <span className="truncate text-sm font-medium text-ink">
                     {dataset.name}
                   </span>
                 </div>
@@ -141,10 +141,9 @@
                     Load bundled dataset
                   </Button>
                   <label className={cx(
-                    'inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3.5 py-2',
-                    'border-slate-300 bg-white text-sm font-medium text-slate-700 transition-colors',
-                    'hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900',
-                    'dark:text-slate-200 dark:hover:bg-slate-800'
+                    'inline-flex cursor-pointer items-center gap-2 border px-4 py-2',
+                    'border-rule-firm bg-panel text-[13px] font-medium text-ink',
+                    'transition-colors hover:bg-sunken'
                   )}>
                     {busy === 'upload'
                       ? <Icon name="spinner" className="h-4 w-4 animate-spin" />
@@ -154,7 +153,7 @@
                       onChange={upload} disabled={busy !== null} />
                   </label>
                 </div>
-                <p className="mt-4 text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                <p className="mt-4 text-sm leading-relaxed text-muted">
                   Uploads are validated against the expected schema before they are
                   accepted: missing columns are rejected outright, unexpected
                   categories and duplicate rows come back as warnings. Nothing is
@@ -181,12 +180,12 @@
                 <StatusRow label="Solver" ok={health.data.solver_available}
                   value={health.data.solver_name} />
                 <div className="flex items-center justify-between">
-                  <dt className="text-slate-600 dark:text-slate-300">Datasets in memory</dt>
+                  <dt className="text-body">Datasets in memory</dt>
                   <dd className="num font-medium">{health.data.datasets_loaded}</dd>
                 </div>
-                <div className="border-t border-slate-200 pt-3.5 dark:border-slate-800">
+                <div className="border-t border-rule pt-3.5">
                   <a href="/docs" target="_blank" rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-700 hover:underline dark:text-accent-400">
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline">
                     Interactive API docs <Icon name="arrow" className="h-3.5 w-3.5" />
                   </a>
                 </div>
@@ -204,16 +203,16 @@
                 </Badge>
                 {part.status === 'planned' && <Badge tone="neutral">Planned</Badge>}
               </div>
-              <h3 className="mt-3 text-base font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+              <h3 className="mt-3 text-base font-semibold tracking-tight text-ink">
                 {part.title}
               </h3>
-              <p className="mt-1.5 text-sm italic leading-relaxed text-slate-500 dark:text-slate-400">
+              <p className="mt-1.5 text-sm italic leading-relaxed text-muted">
                 {part.question}
               </p>
               <ul className="mt-4 space-y-2">
                 {part.points.map((point) => (
-                  <li key={point} className="flex gap-2.5 text-sm text-slate-600 dark:text-slate-300">
-                    <Icon name="check" className="mt-1 h-3.5 w-3.5 shrink-0 text-accent-600 dark:text-accent-400" />
+                  <li key={point} className="flex gap-2.5 text-sm text-body">
+                    <Icon name="check" className="mt-1 h-3.5 w-3.5 shrink-0 text-accent" />
                     <span className="leading-relaxed">{point}</span>
                   </li>
                 ))}
@@ -238,10 +237,10 @@
 
   const StatusRow = ({ label, ok, value }) => (
     <div className="flex items-center justify-between">
-      <dt className="text-slate-600 dark:text-slate-300">{label}</dt>
+      <dt className="text-body">{label}</dt>
       <dd className="flex items-center gap-2">
-        <span className={cx('h-1.5 w-1.5 rounded-full',
-          ok ? 'bg-emerald-500' : 'bg-rose-500')} />
+        <span className={cx('h-1.5 w-1.5',
+          ok ? 'bg-pos' : 'bg-neg')} />
         <span className="font-medium">{value}</span>
       </dd>
     </div>
@@ -291,7 +290,9 @@
             hint="Share of records flagged as bottlenecked" />
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-5">
+        {/* items-start: each panel keeps its natural height rather than
+            stretching to its neighbour and leaving a void. */}
+        <div className="mt-6 grid items-start gap-6 lg:grid-cols-5">
           <Card className="lg:col-span-3" title="Per-terminal profile"
             subtitle="The aggregates every LP coefficient is derived from."
             bodyClass="p-0">
@@ -300,7 +301,7 @@
               rows={data.terminal_stats}
               columns={[
                 { key: 'terminal', header: 'Terminal',
-                  className: 'font-medium text-slate-900 dark:text-slate-100' },
+                  className: 'font-medium text-ink' },
                 { key: 'n_records', header: 'Records', align: 'right',
                   render: (r) => fmt.int(r.n_records) },
                 { key: 'mean_workforce', header: 'Workers', align: 'right',
@@ -321,7 +322,7 @@
                   render: (r) => fmt.num(r.throughput_capacity, 1) },
               ]}
             />
-            <p className="px-4 pb-4 pt-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+            <p className="px-4 pb-4 pt-3 text-xs leading-relaxed text-muted">
               Facility utilisation and bottleneck rate feed the congestion
               multiplier γ; the capacity column is the 95th percentile of observed
               throughput, which becomes each terminal's ceiling in the LP.
@@ -338,7 +339,7 @@
           <CorrelationCard data={data} />
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="mt-6 grid items-start gap-6 lg:grid-cols-2">
           <CategoryCard counts={data.categorical_counts} />
           <Card title="Numeric ranges"
             subtitle="Every numeric column is uniform across its range — mean and median coincide throughout."
@@ -349,7 +350,7 @@
               rows={data.numeric_stats}
               columns={[
                 { key: 'column', header: 'Column', render: (r) => short(r.column),
-                  className: 'font-medium text-slate-900 dark:text-slate-100' },
+                  className: 'font-medium text-ink' },
                 { key: 'min', header: 'Min', align: 'right',
                   render: (r) => fmt.num(r.min, 1) },
                 { key: 'median', header: 'Median', align: 'right',
@@ -442,10 +443,14 @@
               data={[{
                 type: 'heatmap', z, x: labels, y: labels,
                 zmin: -bound, zmax: bound,
+                // Diverging through the panel's own ground, so "no correlation"
+                // reads as the surface itself rather than as a colour. The ends
+                // are the semantic pair, not the accent — this matrix reports a
+                // finding, it does not represent a decision.
                 colorscale: [
-                  [0, t.dark ? '#7f1d1d' : '#b91c1c'],
-                  [0.5, t.dark ? '#0f172a' : '#f8fafc'],
-                  [1, t.dark ? '#134e4a' : '#0f766e'],
+                  [0, t.neg],
+                  [0.5, t.dark ? 'rgb(23,27,31)' : 'rgb(252,252,251)'],
+                  [1, t.pos],
                 ],
                 hovertemplate: '%{y} × %{x}<br>r = %{z:.3f}<extra></extra>',
                 colorbar: { thickness: 10, len: 0.85, outlinewidth: 0,
@@ -460,14 +465,14 @@
           </div>
           <div className="lg:col-span-2">
             <SectionLabel>Reading</SectionLabel>
-            <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+            <p className="mt-2 text-sm leading-relaxed text-body">
               {data.correlation_note}
             </p>
-            <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/50">
-              <p className="num text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+            <div className="mt-5 border border-rule bg-sunken p-4">
+              <p className="num text-2xl font-semibold tracking-tight text-ink">
                 {fmt.num(peak, 3)}
               </p>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              <p className="mt-1 text-xs text-muted">
                 strongest off-diagonal |r| across {labels.length} numeric columns
               </p>
             </div>
@@ -477,7 +482,7 @@
               coefficient in closed form from group means plus a single named
               assumption, which you can move and re-solve on the LP page.
             </Callout>
-            <p className="mt-4 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+            <p className="mt-4 text-xs leading-relaxed text-muted">
               Switch the scale to see the two readings: at −1…1 the matrix is
               uniformly blank, which is the honest picture; zoomed to the observed
               range the structure that appears is sampling noise, not signal.
@@ -503,10 +508,10 @@
           {counts.map((c) => (
             <button key={c.column} onClick={() => setColumn(c.column)}
               className={cx(
-                'rounded-md border px-2.5 py-1 text-xs font-medium transition-colors',
+                'border px-2.5 py-1 font-mono text-[11px] transition-colors',
                 c.column === active.column
-                  ? 'border-accent-600 bg-accent-600 text-white'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'
+                  ? 'border-accent-fill bg-accent-fill text-accent-ink'
+                  : 'border-rule-firm bg-panel text-body hover:bg-sunken hover:text-ink'
               )}>
               {short(c.column)}
             </button>
@@ -536,13 +541,13 @@
     <div>
       <Skeleton className="h-7 w-72" />
       <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}
+        {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-24 w-full" />)}
       </div>
       <div className="mt-6 grid gap-6 lg:grid-cols-5">
-        <Skeleton className="h-64 rounded-xl lg:col-span-3" />
-        <Skeleton className="h-64 rounded-xl lg:col-span-2" />
+        <Skeleton className="h-64 lg:col-span-3" />
+        <Skeleton className="h-64 lg:col-span-2" />
       </div>
-      <Skeleton className="mt-6 h-96 w-full rounded-xl" />
+      <Skeleton className="mt-6 h-96 w-full" />
     </div>
   );
 
