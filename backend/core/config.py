@@ -83,6 +83,15 @@ EXPECTED_CATEGORIES: dict[str, tuple[str, ...]] = {
     COL_WEATHER: WEATHER_CONDITIONS,
 }
 
+# --- Planning horizon -------------------------------------------------------
+
+#: Hours in one planning window. This is what makes a demand *level* (tons
+#: arriving in the window) comparable with a throughput *rate* (tons/hour), and
+#: it sets the worker-minute budget Part 2 draws on (MODEL.md section 1).
+PLANNING_HORIZON_HOURS = 8.0
+
+MINUTES_PER_HOUR = 60.0
+
 # --- LP model assumptions ---------------------------------------------------
 
 #: Fraction of throughput attributed to labour; the remainder goes to equipment.
@@ -99,6 +108,18 @@ CONGESTION_DELTA = 1.0
 
 #: Percentile of observed throughput used as each terminal's physical ceiling.
 CAPACITY_PERCENTILE = 0.95
+
+#: Operators required per equipment unit (MODEL.md section 3.3, constraint 5).
+#: A stated operational assumption, not a data finding: the observed ratio of
+#: about 3.6 workers per machine clears it comfortably, which is what keeps the
+#: observed baseline feasible under the coupling constraint.
+STAFFING_RATIO = 1.5
+
+#: How the per-day demand levels behind `D_t` are collapsed into one planning
+#: window. "mean" is the average day; "p95" is the busy day where the slack
+#: variables switch on (MODEL.md section 3.4).
+DEMAND_DAY_AGGREGATION = "mean"
+DEMAND_DAY_PERCENTILE = 0.95
 
 #: Percentiles of observed resource use used as per-terminal allocation bounds.
 BOUND_LOW_PERCENTILE = 0.05
@@ -133,9 +154,26 @@ PRIORITY_WEIGHTS: dict[str, float] = {
     "Low": 1.0,
 }
 
-#: Urgency weights on normalised waiting time and queue length in the value score.
+#: Urgency weights on normalised waiting time and queue length in the value
+#: score. Clamped to [0, 1]: they set the *balance* between the two signals,
+#: never the size of the uplift.
 LAMBDA_WAITING = 0.5
 LAMBDA_QUEUE = 0.5
+LAMBDA_MIN = 0.0
+LAMBDA_MAX = 1.0
+
+#: Cap on the urgency uplift, so the value multiplier spans [1, 1 + U] for any
+#: lambda. It must stay strictly below the tightest adjacent priority ratio
+#: (Critical:High = 2), otherwise a maximally-urgent High ties with, or
+#: outranks, a non-urgent Critical and the model stops enforcing the priority
+#: ordering it is built around (MODEL.md section 4.3). Priority is
+#: lexicographic; urgency is a tiebreaker within a class.
+URGENCY_UPLIFT_CAP = 0.9
+
+#: Priority classes whose shipments the force-Critical policy toggle pins in.
+FORCED_PRIORITY = "Critical"
+HAZARDOUS_CARGO_TYPE = "Hazardous"
+PERISHABLE_CARGO_TYPE = "Perishable"
 
 #: Capacities default to this fraction of the batch totals, which keeps the
 #: knapsack binding but always feasible.

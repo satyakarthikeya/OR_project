@@ -19,6 +19,11 @@
     { value: 'min_cost', label: 'Min cost' },
   ];
 
+  const DEMAND_DAYS = [
+    { value: 'mean', label: 'Average day' },
+    { value: 'p95', label: 'Busy day (p95)' },
+  ];
+
   const PEAK_OPTIONS = [
     { value: null, label: 'All hours' },
     { value: 1, label: 'Peak' },
@@ -34,6 +39,7 @@
     congestion_delta: 1.0,
     apply_congestion: true,
     demand_scale: 1.0,
+    demand_day: 'mean',
     objective: 'max_throughput',
     workforce_pool_factor: 1.0,
     equipment_pool_factor: 1.0,
@@ -60,6 +66,7 @@
       congestion_delta: c.congestion_delta,
       apply_congestion: c.apply_congestion,
       demand_scale: c.demand_scale,
+      demand_day: c.demand_day,
     };
   }
 
@@ -75,7 +82,7 @@
 
   /* ----------------------------------------------------------------- page */
 
-  function LPPage({ dataset }) {
+  function LPPage({ dataset, onSolved }) {
     const [controls, setControls] = useState(DEFAULTS);
     const [vocab, setVocab] = useState(null);
 
@@ -135,6 +142,9 @@
         const result = await window.api.lpSolve(payload);
         setSolve({ data: result, error: null, loading: false });
         setSolvedAt(signature);
+        // Publish w_t* to the shell so Part 2 spends *this* allocation rather
+        // than one solved behind the user's back on default settings.
+        if (onSolved) onSolved(result);
         if (result.status === 'Optimal') {
           try {
             const sweep = await window.api.lpSensitivity({ ...payload, points: 9 });
@@ -149,7 +159,7 @@
         setSolve({ data: null, error, loading: false });
         setSensitivity({ data: null, loading: false });
       }
-    }, [dataset.dataset_id, controls]);
+    }, [dataset.dataset_id, controls, onSolved]);
 
     return (
       <div>
@@ -324,6 +334,25 @@
                 onChange={(v) => set({ congestion_delta: v })}
                 hint="Raises the weight on facility utilisation, widening the productivity spread between terminals."
               />
+              <div className="py-3">
+                <label className="text-sm font-medium text-ink">
+                  Planning window
+                </label>
+                <div className="mt-2">
+                  <SegmentedControl
+                    className="w-full" value={controls.demand_day}
+                    onChange={(v) => set({ demand_day: v })}
+                    options={DEMAND_DAYS}
+                  />
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-muted">
+                  D_t is the tons arriving at a terminal in one window, divided
+                  by H — a level made into a rate, never a rescaled mean. On an
+                  average day every terminal carries roughly 45% headroom; on a
+                  busy day demand runs past capability and the slack variables
+                  switch on. That is where the LP earns its keep.
+                </p>
+              </div>
               <SliderRow
                 label="Demand stress ×" value={controls.demand_scale}
                 min={0.5} max={3} step={0.1}
@@ -476,8 +505,8 @@
               { label: 'Baseline cost', value: fmt.money(params.baseline_cost) },
               { label: 'Baseline unmet demand',
                 value: fmt.num(params.baseline_unmet_demand, 2) },
-              { label: 'Demand unit scale',
-                value: fmt.num(params.assumptions.demand_unit_scale, 4) },
+              { label: 'Planning horizon H',
+                value: `${fmt.num(params.assumptions.horizon_hours, 0)} h` },
               { label: 'Unmet-demand penalty M',
                 value: fmt.num(params.unmet_penalty[controls.objective], 1) },
               { label: 'Capacity percentile',

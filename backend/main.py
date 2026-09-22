@@ -8,7 +8,7 @@ import pulp
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from backend.api import datasets, lp
+from backend.api import datasets, ip, lp
 from backend.core import config
 from backend.core.store import store
 from backend.schemas.common import HealthOut
@@ -25,6 +25,7 @@ app = FastAPI(
 
 app.include_router(datasets.router)
 app.include_router(lp.router)
+app.include_router(ip.router)
 
 
 @app.get("/api/health", response_model=HealthOut)

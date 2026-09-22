@@ -56,7 +56,10 @@ def test_parameters_carry_their_derivation_and_the_caveat(dataset_id: str) -> No
     ).json()
 
     symbols = {note["symbol"] for note in body["derivation"]}
-    assert {"α_t", "β_t", "γ_t", "D_t", "Cap_t"} <= symbols
+    assert {"α_t", "β_t", "γ_t", "D_t", "Cap_t", "ρ"} <= symbols
+    demand = next(n for n in body["derivation"] if n["symbol"] == "D_t")
+    assert "/ H" in demand["formula"]
+    assert "rescal" not in demand["formula"].lower()
     assert all(note["formula"] and note["explanation"]
                for note in body["derivation"])
     assert body["caveat"] == config.MODEL_WORLD_CAVEAT
@@ -178,6 +181,65 @@ def test_duals_are_reported_with_an_interpretation(dataset_id: str) -> None:
         if not dual["binding"]:
             assert dual["slack"] > 1e-6
     assert {d["name"] for d in body["duals"]} >= {"worker_pool", "equipment_pool"}
+
+
+def test_demand_is_a_level_over_the_horizon(dataset_id: str) -> None:
+    """D_t = tons in the window / H, and the busy day is genuinely busier."""
+    average = client.post("/api/lp/parameters", json={
+        "dataset_id": dataset_id}).json()
+    peak = client.post("/api/lp/parameters", json={
+        "dataset_id": dataset_id, "demand_day": "p95"}).json()
+
+    assert average["assumptions"]["demand_day"] == "mean"
+    assert average["assumptions"]["horizon_hours"] == 8.0
+    assert peak["assumptions"]["demand_day"] == "p95"
+
+    for row in average["terminals"]:
+        assert row["demand"] == pytest.approx(row["demand_tons"] / 8.0)
+    for a, p in zip(average["terminals"], peak["terminals"]):
+        assert p["demand"] > a["demand"] * 1.5
+
+
+def test_peak_day_switches_the_slack_on(dataset_id: str) -> None:
+    """The scenario story: headroom on an average day, shortfall on a busy one."""
+    average = solve(dataset_id, demand_day="mean")
+    peak = solve(dataset_id, demand_day="p95")
+
+    assert sum(r["unmet_demand"] for r in average["allocation"]) < 1e-4
+    assert sum(r["unmet_demand"] for r in peak["allocation"]) > 1.0
+
+
+def test_duals_say_which_solve_they_came_from(dataset_id: str) -> None:
+    """e_t is integer, so the allocation and the duals are different solves."""
+    body = solve(dataset_id)
+    assert body["allocation_source"] == "milp"
+    assert body["duals_source"] == "relaxation"
+    assert "relaxation" in body["duals_note"]
+    assert body["duals_penalty_inflated"] is False
+
+
+def test_unmet_demand_flags_the_duals_and_cleans_them(dataset_id: str) -> None:
+    body = solve(dataset_id, demand_day="p95", demand_scale=2.0)
+    assert body["status"] == "Optimal"
+    assert sum(r["unmet_demand"] for r in body["allocation"]) > 0
+
+    assert body["duals_penalty_inflated"] is True
+    assert body["duals_source"] == "relaxation_demand_met"
+    pool = next(d for d in body["duals"] if d["name"] == "worker_pool")
+    assert pool["shadow_price"] < body["unmet_penalty"]
+
+
+def test_equipment_comes_back_as_whole_machines(dataset_id: str) -> None:
+    for row in solve(dataset_id)["allocation"]:
+        units = row["optimized_equipment"]
+        assert abs(units - round(units)) < 1e-6
+
+
+def test_every_machine_is_crewed(dataset_id: str) -> None:
+    body = solve(dataset_id)
+    rho = body["assumptions"]["staffing_ratio"]
+    for row in body["allocation"]:
+        assert row["optimized_workforce"] >= rho * row["optimized_equipment"] - 1e-6
 
 
 def test_a_starved_pool_returns_advice_not_a_500(dataset_id: str) -> None:

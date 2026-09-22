@@ -85,5 +85,8 @@
     lpParameters: (body) => post('/api/lp/parameters', body),
     lpSolve: (body) => post('/api/lp/solve', body),
     lpSensitivity: (body) => post('/api/lp/sensitivity', body),
+
+    ipBatch: (body) => post('/api/ip/batch', body),
+    ipSolve: (body) => post('/api/ip/solve', body),
   };
 })();

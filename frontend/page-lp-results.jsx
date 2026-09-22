@@ -159,7 +159,20 @@
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
           <Card title="Binding constraints and shadow prices"
             subtitle="What is actually limiting the plan, and what a unit of relief is worth."
+            actions={result.duals_penalty_inflated
+              ? <Badge tone="warn">Penalty-stripped</Badge>
+              : <Badge tone="neutral">Relaxation duals</Badge>}
             bodyClass="p-0">
+            {/* The single most important caveat in the project: the headline
+                research question is "what is one more worker worth?", and the
+                dual is the answer, so where it came from has to be on screen
+                next to it rather than in a footnote. */}
+            <div className="border-b border-rule px-5 py-4">
+              <Callout tone={result.duals_penalty_inflated ? 'warn' : 'neutral'}
+                icon="info">
+                {result.duals_note}
+              </Callout>
+            </div>
             <DataTable
               compact
               rowKey={(r) => r.name}

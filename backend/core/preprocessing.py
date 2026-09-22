@@ -69,12 +69,33 @@ def apply_filters(df: pd.DataFrame, filters: ScenarioFilters | None) -> pd.DataF
 # --- Terminal aggregation ---------------------------------------------------
 
 
+def _daily_demand_levels(df: pd.DataFrame) -> pd.Series:
+    """Tons of forecast cargo arriving at each terminal, per calendar day.
+
+    `Demand_Forecast` is a per-shipment tonnage, so a *sum* is the workload and
+    a mean is not: a terminal handling 1,301 shipments and one handling 1,200
+    come out identical under a mean, and how busy a terminal is never reaches
+    the model (MODEL.md section 3.4).
+    """
+    day = (
+        df["date"] if "date" in df.columns
+        else df[config.COL_TIMESTAMP].dt.date
+    )
+    return df.groupby([df[config.COL_TERMINAL], day])[
+        config.COL_DEMAND_FORECAST
+    ].sum()
+
+
 def terminal_summary(df: pd.DataFrame) -> pd.DataFrame:
     """Per-terminal aggregates: the raw material for every LP parameter."""
     grouped = df.groupby(config.COL_TERMINAL)
+    daily = _daily_demand_levels(df).groupby(level=0)
 
     summary = pd.DataFrame({
         "n_records": grouped.size(),
+        "n_days": daily.size(),
+        "demand_tons_mean_day": daily.mean(),
+        "demand_tons_peak_day": daily.quantile(config.DEMAND_DAY_PERCENTILE),
         "mean_workforce": grouped[config.COL_WORKFORCE].mean(),
         "mean_equipment": grouped[config.COL_EQUIPMENT].mean(),
         "mean_throughput": grouped[config.COL_THROUGHPUT].mean(),
@@ -110,6 +131,9 @@ class LPParameters:
     cost_worker: dict[str, float]
     cost_equipment: dict[str, float]
     demand: dict[str, float]
+    #: The level behind `demand`: tons arriving at the terminal in one window,
+    #: before division by the horizon. Reported so the rate can be audited.
+    demand_tons: dict[str, float]
     capacity: dict[str, float]
     workforce_bounds: dict[str, tuple[float, float]]
     equipment_bounds: dict[str, tuple[float, float]]
@@ -162,6 +186,8 @@ def estimate_lp_params(
     congestion_delta: float = config.CONGESTION_DELTA,
     apply_congestion: bool = True,
     demand_scale: float = 1.0,
+    demand_day: str = config.DEMAND_DAY_AGGREGATION,
+    horizon_hours: float = config.PLANNING_HORIZON_HOURS,
 ) -> LPParameters:
     """Derive every LP coefficient from a scenario slice.
 
@@ -174,6 +200,10 @@ def estimate_lp_params(
         raise ValueError("Scenario slice is empty; relax the filters")
     if not 0.0 < labor_share < 1.0:
         raise ValueError("labor_share must lie strictly between 0 and 1")
+    if demand_day not in ("mean", "p95"):
+        raise ValueError("demand_day must be 'mean' or 'p95'")
+    if horizon_hours <= 0:
+        raise ValueError("horizon_hours must be positive")
 
     summary = terminal_summary(df)
     terminals = [str(t) for t in summary.index]
@@ -216,14 +246,15 @@ def estimate_lp_params(
     cost_worker = cost_labor_share * c_bar / w_bar
     cost_equipment = (1.0 - cost_labor_share) * c_bar / e_bar
 
-    # Demand_Forecast (mean ~80) and Throughput_Rate (mean ~65) are on different
-    # scales, so demand must be rescaled before entering a throughput constraint.
-    mean_forecast = df[config.COL_DEMAND_FORECAST].mean()
-    mean_throughput = df[config.COL_THROUGHPUT].mean()
-    unit_scale = (
-        mean_throughput / mean_forecast if mean_forecast > config.EPSILON else 1.0
+    # Demand and throughput differ in *dimension*, not scale: Demand_Forecast is
+    # a per-shipment tonnage, Throughput_Rate is tons per hour. Summing the
+    # forecast over a terminal's planning window gives a level in tons; only
+    # dividing by the horizon H turns it into a comparable rate. A rescaling
+    # factor would keep tons as tons (MODEL.md section 3.4).
+    tons_column = (
+        "demand_tons_peak_day" if demand_day == "p95" else "demand_tons_mean_day"
     )
-    demand = summary["mean_demand_forecast"] * unit_scale * demand_scale
+    demand = summary[tons_column] / horizon_hours * demand_scale
 
     capacity = summary["throughput_capacity"]
     infeasible_demand = [
@@ -242,15 +273,19 @@ def estimate_lp_params(
         cost_worker=cost_worker.to_dict(),
         cost_equipment=cost_equipment.to_dict(),
         demand=demand.to_dict(),
+        demand_tons=(summary[tons_column] * demand_scale).to_dict(),
         capacity=capacity.to_dict(),
         workforce_bounds={
             t: (float(summary.loc[t, "workforce_min"]),
                 float(summary.loc[t, "workforce_max"]))
             for t in terminals
         },
+        # e_t is an integer variable, so a fractional percentile bound is
+        # tightened by CBC anyway; doing it here keeps the reported bounds and
+        # the solved bounds the same number.
         equipment_bounds={
-            t: (float(summary.loc[t, "equipment_min"]),
-                float(summary.loc[t, "equipment_max"]))
+            t: (float(np.floor(summary.loc[t, "equipment_min"])),
+                float(np.ceil(summary.loc[t, "equipment_max"])))
             for t in terminals
         },
         baseline_workforce=w_bar.to_dict(),
@@ -265,8 +300,10 @@ def estimate_lp_params(
             "cost_labor_share": cost_labor_share,
             "congestion_delta": congestion_delta,
             "congestion_applied": apply_congestion,
-            "demand_unit_scale": float(unit_scale),
+            "horizon_hours": float(horizon_hours),
+            "demand_day": demand_day,
             "demand_scale": demand_scale,
+            "staffing_ratio": config.STAFFING_RATIO,
             "capacity_percentile": config.CAPACITY_PERCENTILE,
             "bound_percentiles": [
                 config.BOUND_LOW_PERCENTILE, config.BOUND_HIGH_PERCENTILE,
@@ -296,6 +333,8 @@ def estimate_lp_params_cached(
     congestion_delta: float = config.CONGESTION_DELTA,
     apply_congestion: bool = True,
     demand_scale: float = 1.0,
+    demand_day: str = config.DEMAND_DAY_AGGREGATION,
+    horizon_hours: float = config.PLANNING_HORIZON_HOURS,
 ) -> LPParameters:
     """Cached `estimate_lp_params` over a filtered slice.
 
@@ -306,7 +345,7 @@ def estimate_lp_params_cached(
         dataset_id,
         (filters or ScenarioFilters()).as_key(),
         labor_share, cost_labor_share, congestion_delta,
-        apply_congestion, demand_scale,
+        apply_congestion, demand_scale, demand_day, horizon_hours,
     )
     cached = _PARAM_CACHE.get(key)
     if cached is not None:
@@ -320,6 +359,8 @@ def estimate_lp_params_cached(
         congestion_delta=congestion_delta,
         apply_congestion=apply_congestion,
         demand_scale=demand_scale,
+        demand_day=demand_day,
+        horizon_hours=horizon_hours,
     )
     _PARAM_CACHE[key] = params
     while len(_PARAM_CACHE) > _PARAM_CACHE_MAX:
@@ -348,15 +389,35 @@ def build_batch(
     priority_weights: dict[str, float] | None = None,
     lambda_waiting: float = config.LAMBDA_WAITING,
     lambda_queue: float = config.LAMBDA_QUEUE,
+    urgency_cap: float = config.URGENCY_UPLIFT_CAP,
     seed: int = 42,
 ) -> pd.DataFrame:
     """Assemble a candidate shipment batch with value scores and resource weights.
 
-    Value is `p_i * (1 + lambda_w * norm(wait) + lambda_q * norm(queue))`, with
-    both urgency terms normalised within the batch (SCOPE.md section 4).
+    The value score is
+
+        v_i = p_i * [ 1 + U * (lambda_w*wait_i + lambda_q*queue_i)
+                          / (lambda_w + lambda_q) ]
+
+    with both urgency terms min-max normalised *within the batch* and both
+    lambdas clamped to [0, 1] (MODEL.md section 4.3).
+
+    Normalising by `lambda_w + lambda_q` and capping the uplift at `U` is what
+    keeps priority lexicographic. Under the earlier uncapped form the
+    multiplier spanned [1, 1 + lambda_w + lambda_q], so at the shipped default
+    of 0.5 each a maximally-urgent High scored 5 x 2 = 10.0 against a
+    non-urgent Critical's 10 x 1 = 10.0 — an exact tie broken by CBC's
+    branching order, and a strict inversion for any larger lambda. `U = 0.9`
+    sits below the tightest adjacent priority ratio (Critical:High = 2), so
+    urgency can only order shipments *within* a class.
     """
     weights = priority_weights or config.PRIORITY_WEIGHTS
     size = max(1, min(int(size), config.MAX_BATCH_SIZE))
+    lambda_waiting = float(np.clip(lambda_waiting, config.LAMBDA_MIN,
+                                   config.LAMBDA_MAX))
+    lambda_queue = float(np.clip(lambda_queue, config.LAMBDA_MIN,
+                                 config.LAMBDA_MAX))
+    urgency_cap = float(np.clip(urgency_cap, 0.0, config.URGENCY_UPLIFT_CAP))
 
     pool = apply_filters(df, filters)
     if pool.empty:
@@ -371,30 +432,98 @@ def build_batch(
         unknown = sorted(batch.loc[base.isna(), config.COL_PRIORITY].unique())
         raise ValueError(f"No priority weight configured for: {', '.join(unknown)}")
 
-    urgency = (
-        1.0
-        + lambda_waiting * _min_max_norm(batch[config.COL_WAITING_TIME])
-        + lambda_queue * _min_max_norm(batch[config.COL_QUEUE_LENGTH])
-    )
+    lambda_total = lambda_waiting + lambda_queue
+    if lambda_total < config.EPSILON:
+        uplift = pd.Series(0.0, index=batch.index)
+    else:
+        uplift = urgency_cap * (
+            lambda_waiting * _min_max_norm(batch[config.COL_WAITING_TIME])
+            + lambda_queue * _min_max_norm(batch[config.COL_QUEUE_LENGTH])
+        ) / lambda_total
 
     batch["priority_weight"] = base
-    batch["value"] = base * urgency
+    batch["urgency_uplift"] = uplift
+    batch["value"] = base * (1.0 + uplift)
     batch["weight_volume"] = batch[config.COL_CARGO_VOLUME]
     batch["weight_worker_minutes"] = (
         batch[config.COL_HANDLING_TIME] * batch[config.COL_WORKFORCE]
     )
-    batch["weight_equipment"] = batch[config.COL_EQUIPMENT]
+    # Equipment is reusable, so charging a machine per shipment double-counts a
+    # forklift that serves A and then B. Machine-*minutes* genuinely are
+    # consumable, stay linear, and mirror the treatment of labour above
+    # (MODEL.md section 4.4, constraint 3).
+    batch["weight_equipment_minutes"] = (
+        batch[config.COL_HANDLING_TIME] * batch[config.COL_EQUIPMENT]
+    )
 
     return batch
 
 
+#: The columns `models.ip_shipment_selection` reads, in the plain-dict form the
+#: model layer is allowed to see. Keeping the translation here is what lets the
+#: model stay free of pandas (AGENT.md, "Layering rules").
+def batch_items(batch: pd.DataFrame) -> list[dict[str, Any]]:
+    """Convert a batch frame into plain dicts for the pure IP model."""
+    return [
+        {
+            "record_id": str(row[config.COL_RECORD_ID]),
+            "terminal": str(row[config.COL_TERMINAL]),
+            "priority": str(row[config.COL_PRIORITY]),
+            "cargo_type": str(row[config.COL_CARGO_TYPE]),
+            "timestamp": str(row[config.COL_TIMESTAMP]),
+            "value": float(row["value"]),
+            "priority_weight": float(row["priority_weight"]),
+            "urgency_uplift": float(row["urgency_uplift"]),
+            "volume": float(row["weight_volume"]),
+            "worker_minutes": float(row["weight_worker_minutes"]),
+            "equipment_minutes": float(row["weight_equipment_minutes"]),
+        }
+        for _, row in batch.iterrows()
+    ]
+
+
 def default_capacities(
-    batch: pd.DataFrame, fraction: float = config.DEFAULT_CAPACITY_FRACTION
-) -> dict[str, float]:
-    """Capacities as a fraction of batch totals: binding, but always feasible."""
+    batch: pd.DataFrame,
+    fraction: float = config.DEFAULT_CAPACITY_FRACTION,
+    lp_workforce: dict[str, float] | None = None,
+    horizon_hours: float = config.PLANNING_HORIZON_HOURS,
+) -> dict[str, Any]:
+    """Capacities for the knapsack: binding, but always feasible.
+
+    `V_cap` and `E_cap` are a fraction `f` of the batch's own totals, which is
+    what keeps the problem interesting without ever making it infeasible.
+
+    The worker-minute budget is different in kind and **does not use `f`**: when
+    Part 1's solved allocation `w_t*` is supplied it becomes `w_t* * H * 60`
+    per terminal, which is how Part 2 spends what Part 1 allocated (MODEL.md
+    section 4.4, constraint 2). Without an LP result the batch's own per-terminal
+    consumption stands in, scaled by `f`, so Part 2 stays solvable standalone —
+    and the response says which of the two was used, because the self-referential
+    form is a weaker claim.
+    """
     fraction = float(np.clip(fraction, 0.05, 1.0))
+    by_terminal = batch.groupby(config.COL_TERMINAL)["weight_worker_minutes"].sum()
+
+    if lp_workforce:
+        worker_minutes = {
+            str(t): float(lp_workforce.get(str(t), 0.0))
+            * horizon_hours
+            * config.MINUTES_PER_HOUR
+            for t in by_terminal.index
+        }
+        source = "lp_allocation"
+    else:
+        worker_minutes = {
+            str(t): float(v) * fraction for t, v in by_terminal.items()
+        }
+        source = "batch_fraction"
+
     return {
         "volume": float(batch["weight_volume"].sum() * fraction),
-        "worker_minutes": float(batch["weight_worker_minutes"].sum() * fraction),
-        "equipment": float(batch["weight_equipment"].sum() * fraction),
+        "equipment_minutes": float(
+            batch["weight_equipment_minutes"].sum() * fraction
+        ),
+        "worker_minutes": worker_minutes,
+        "worker_minutes_source": source,
+        "fraction": fraction,
     }

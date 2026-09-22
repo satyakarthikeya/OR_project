@@ -8,6 +8,8 @@ those break, every number the report quotes becomes meaningless.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pandas as pd
 import pytest
 
@@ -160,7 +162,9 @@ def test_duals_cover_every_constraint(params: LPParameters) -> None:
 
     names = {d.name for d in result.duals}
     expected = {"worker_pool", "equipment_pool"} | {
-        f"{kind}_{t}" for kind in ("demand", "capacity") for t in problem.terminals
+        f"{kind}_{t}"
+        for kind in ("demand", "capacity", "staffing")
+        for t in problem.terminals
     }
     assert names == expected
     assert all(d.interpretation for d in result.duals)
@@ -195,8 +199,15 @@ def test_a_priced_constraint_is_never_labelled_slack(params: LPParameters) -> No
     absolute epsilon reads as slack — while the constraint carries a large
     shadow price. The two together would be a visible contradiction in the UI.
     """
+    cheapest = lp.solve_allocation(
+        lp.problem_from_parameters(params, objective="min_cost")
+    ).solution
+    assert cheapest is not None
+
+    # A cap just above the cheapest feasible plan is certain to bind when the
+    # objective wants to spend.
     problem = lp.problem_from_parameters(
-        params, objective="min_cost", budget=params.baseline_cost() * 0.5
+        params, objective="max_throughput", budget=cheapest.total_cost * 1.05
     )
     result = lp.solve_allocation(problem)
 
@@ -351,10 +362,12 @@ def test_comparison_reports_deltas_in_both_directions(params: LPParameters) -> N
         assert metric.delta == pytest.approx(metric.optimized - metric.baseline)
 
 
-def test_comparison_flags_penalty_driven_headlines(params: LPParameters) -> None:
-    problem = lp.problem_from_parameters(params, objective="max_throughput")
+def test_comparison_flags_penalty_driven_headlines(df: pd.DataFrame) -> None:
+    """The busy day is where slack switches on, so that is where this bites."""
+    peak = preprocessing.estimate_lp_params(df, demand_day="p95")
+    problem = lp.problem_from_parameters(peak, objective="max_throughput")
     result = lp.solve_allocation(problem)
-    base = baseline_mod.observed_allocation_baseline(problem, params)
+    base = baseline_mod.observed_allocation_baseline(problem, peak)
     assert result.solution is not None
 
     block = comparison.compare_allocations(
@@ -416,6 +429,141 @@ def test_comparison_flags_expanded_resources(params: LPParameters) -> None:
     assert any("Expanded-resources" in n for n in block.notes)
 
 
+# --- Integrality and the staffing coupling -----------------------------------
+
+
+@pytest.mark.parametrize("objective", OBJECTIVES)
+def test_equipment_is_whole_machines(params: LPParameters, objective: str) -> None:
+    """You cannot run 0.43 of a forklift (MODEL.md 3.1)."""
+    result = lp.solve_allocation(
+        lp.problem_from_parameters(params, objective=objective)
+    )
+    assert result.solution is not None
+    for t in params.terminals:
+        units = result.solution.equipment[t]
+        assert abs(units - round(units)) < 1e-6, f"{t} got {units} machines"
+
+
+def test_workers_are_not_forced_to_whole_people(params: LPParameters) -> None:
+    """w_t stays continuous: a staffing level over a shift genuinely splits."""
+    problem = lp.problem_from_parameters(params, objective="max_throughput")
+    assert problem.workforce_bounds  # sanity
+    result = lp.solve_allocation(problem)
+    assert result.solution is not None
+    assert any(
+        abs(result.solution.workforce[t] - round(result.solution.workforce[t]))
+        > 1e-6
+        for t in params.terminals
+    )
+
+
+@pytest.mark.parametrize("objective", OBJECTIVES)
+def test_every_machine_has_an_operator(
+    params: LPParameters, objective: str
+) -> None:
+    """Constraint (5). Without it the LP runs the cranes unattended."""
+    problem = lp.problem_from_parameters(params, objective=objective)
+    result = lp.solve_allocation(problem)
+    assert result.solution is not None
+
+    for t in problem.terminals:
+        assert result.solution.workforce[t] >= (
+            problem.staffing_ratio * result.solution.equipment[t] - 1e-6
+        )
+
+
+def test_observed_baseline_clears_the_staffing_ratio(params: LPParameters) -> None:
+    """The answer to 'does your baseline survive the new constraint?'"""
+    problem = lp.problem_from_parameters(params, objective="max_throughput")
+    for t in problem.terminals:
+        ratio = params.baseline_workforce[t] / params.baseline_equipment[t]
+        assert ratio > problem.staffing_ratio
+    assert baseline_mod.observed_allocation_baseline(problem, params).feasible
+
+
+def test_staffing_coupling_holds_equipment_back(params: LPParameters) -> None:
+    """With the coupling removed the LP would buy machines it cannot crew."""
+    coupled = lp.solve_allocation(
+        lp.problem_from_parameters(params, objective="max_throughput")
+    ).solution
+    uncoupled = lp.solve_allocation(
+        lp.problem_from_parameters(
+            params, objective="max_throughput", staffing_ratio=0.0
+        )
+    ).solution
+    assert coupled is not None and uncoupled is not None
+    assert uncoupled.total_equipment >= coupled.total_equipment - 1e-6
+
+
+def test_capacity_versus_floor_conflict_is_pre_detected(
+    params: LPParameters,
+) -> None:
+    """An empty box must be named, not handed to CBC to report as Infeasible."""
+    problem = lp.problem_from_parameters(params, objective="max_throughput")
+    squeezed = replace(
+        problem, capacity={t: 1.0 for t in problem.terminals}
+    )
+    errors, suggestions = lp.check_problem(squeezed)
+    assert errors
+    assert any("capacity ceiling" in e for e in errors)
+    assert suggestions
+
+    result = lp.solve_allocation(squeezed)
+    assert result.status == "Infeasible"
+    assert result.solution is None
+
+
+def test_unstaffable_equipment_floor_is_pre_detected(
+    params: LPParameters,
+) -> None:
+    """rho * e_min above w_max is an empty box the user cannot see."""
+    problem = lp.problem_from_parameters(params, objective="max_throughput")
+    unstaffable = replace(
+        problem,
+        equipment_bounds={t: (40.0, 50.0) for t in problem.terminals},
+        equipment_total=200.0,
+    )
+    errors, suggestions = lp.check_problem(unstaffable)
+    assert any("operators" in e for e in errors)
+    assert suggestions
+
+
+# --- Duals: which solve they came from ---------------------------------------
+
+
+def test_duals_come_from_the_relaxation_and_say_so(params: LPParameters) -> None:
+    """e_t is integer, so CBC's own duals are not shadow prices (MODEL.md 3.1)."""
+    result = lp.solve_allocation(
+        lp.problem_from_parameters(params, objective="max_throughput")
+    )
+    assert result.allocation_source == "milp"
+    assert result.duals_source == "relaxation"
+    assert "relaxation" in result.duals_note
+    assert result.duals_penalty_inflated is False
+
+
+def test_unmet_demand_forces_clean_duals_from_a_second_solve(
+    df: pd.DataFrame,
+) -> None:
+    """With s_t > 0 the raw duals are multiples of M, not marginal throughput."""
+    hungry = preprocessing.estimate_lp_params(df, demand_day="p95", demand_scale=2.0)
+    problem = lp.problem_from_parameters(hungry, objective="max_throughput")
+    result = lp.solve_allocation(problem)
+
+    assert result.status == "Optimal"
+    assert result.solution is not None
+    assert result.solution.total_unmet_demand > 0
+
+    assert result.duals_penalty_inflated is True
+    assert result.duals_source == "relaxation_demand_met"
+    assert "penalty" in result.duals_note.lower()
+
+    # The point of the second solve: no dual is a multiple of the penalty rate.
+    pool = next(d for d in result.duals if d.name == "worker_pool")
+    assert pool.shadow_price < problem.unmet_penalty
+    assert pool.shadow_price <= max(hungry.alpha.values()) + 1e-6
+
+
 # --- Purity -------------------------------------------------------------------
 
 
@@ -426,3 +574,63 @@ def test_model_module_stays_pure() -> None:
     for forbidden in ("import pandas", "from fastapi", "import fastapi",
                       "from backend.core.store", "read_csv"):
         assert forbidden not in source, f"model imports {forbidden}"
+
+
+# --- Service-level disclosure on min_cost (MODEL.md section 5) ---------------
+
+
+def _min_cost_blocks(params: LPParameters):
+    problem = lp.problem_from_parameters(params, objective="min_cost")
+    result = lp.solve_allocation(problem)
+    assert result.solution is not None
+    base = baseline_mod.observed_allocation_baseline(problem, params)
+    return base.evaluation, result.solution, problem
+
+
+def test_min_cost_saving_that_cuts_output_is_disclosed(
+    params: LPParameters,
+) -> None:
+    """The headline cost cut must never stand on its own.
+
+    Minimising cost only requires demand to be met, and demand on this data
+    sits far below observed capability, so the cheapest plan stops at the
+    demand line and cost falls roughly in proportion with throughput. That is
+    a correct optimum and a misleading headline, so the comparison has to say
+    where the saving came from.
+    """
+    baseline_eval, optimized, _ = _min_cost_blocks(params)
+    block = comparison.compare_allocations(
+        baseline=baseline_eval, optimized=optimized, objective="min_cost"
+    )
+
+    drop = (
+        baseline_eval.total_throughput - optimized.total_throughput
+    ) / baseline_eval.total_throughput
+    assert drop > comparison.SERVICE_LEVEL_DROP_THRESHOLD, (
+        "fixture no longer exercises the case this test guards"
+    )
+    assert any("fall in throughput" in note for note in block.notes)
+
+
+def test_no_service_level_note_when_output_holds_up(
+    params: LPParameters,
+) -> None:
+    """The disclosure is targeted, not boilerplate on every min-cost run."""
+    baseline_eval, optimized, _ = _min_cost_blocks(params)
+    # Same objective, but an "optimised" plan that produces what the baseline
+    # produced: nothing was traded away, so nothing needs disclosing.
+    block = comparison.compare_allocations(
+        baseline=baseline_eval, optimized=baseline_eval, objective="min_cost"
+    )
+    assert not any("fall in throughput" in note for note in block.notes)
+
+
+def test_service_level_note_is_confined_to_min_cost(
+    params: LPParameters,
+) -> None:
+    """Maximising throughput cannot buy a saving by producing less."""
+    baseline_eval, optimized, _ = _min_cost_blocks(params)
+    block = comparison.compare_allocations(
+        baseline=baseline_eval, optimized=optimized, objective="max_throughput"
+    )
+    assert not any("fall in throughput" in note for note in block.notes)

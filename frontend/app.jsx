@@ -8,7 +8,7 @@
 (function () {
   const { useState, useEffect, useCallback } = React;
   const { cx, Icon, Button, Badge, Card, EmptyState, ThemeContext } = window.UI;
-  const { HomePage, ExplorerPage, LPPage } = window.Pages;
+  const { HomePage, ExplorerPage, LPPage, IPPage } = window.Pages;
 
   const STORAGE_THEME = 'acro-theme';
   const STORAGE_DATASET = 'acro-dataset';
@@ -83,6 +83,43 @@
     }, []);
 
     return { dataset, adopt, restoring };
+  }
+
+  /* ------------------------------------------------------------- part one */
+
+  /**
+   * Part 1's solved allocation, held here because Part 2 spends it.
+   *
+   * The two models are sequential: constraint (2) of the knapsack takes its
+   * right-hand side from `w_t*`. That only means anything if it is the `w_t*`
+   * the user actually chose — a different objective or a moved slider gives a
+   * materially different allocation, and Part 2 answering from a run nobody
+   * saw would make the two-stage coupling a fiction. So the LP page publishes
+   * its result here and the IP page reads it.
+   */
+  function useLPRun(datasetId) {
+    const [lpRun, setLpRun] = useState(null);
+
+    // Parameters are derived per dataset, so an allocation from the previous
+    // one is meaningless against this one's terminals.
+    useEffect(() => { setLpRun(null); }, [datasetId]);
+
+    const publish = useCallback((result, objectiveLabel) => {
+      if (!result || result.status !== 'Optimal') return;
+      const workforce = {};
+      result.allocation.forEach((r) => {
+        workforce[r.terminal] = r.optimized_workforce;
+      });
+      setLpRun({
+        workforce,
+        objective: result.objective,
+        objective_label: objectiveLabel || result.objective_label,
+        expanded_resources: result.expanded_resources,
+        at: Date.now(),
+      });
+    }, []);
+
+    return { lpRun, publish };
   }
 
   /* ---------------------------------------------------------------- shell */
@@ -183,34 +220,13 @@
     );
   }
 
-  /** Part 2 is not built yet; say so plainly rather than shipping a dead tab. */
-  function IPPlaceholder({ onNavigate }) {
-    return (
-      <div className="mx-auto max-w-3xl">
-        <Card>
-          <EmptyState icon="sliders" title="Part 2 — cargo processing selection">
-            The 0-1 multi-dimensional knapsack that decides which shipments to
-            process under capacity limits is specified in SCOPE.md section 4 and
-            its data layer (batch construction, value scores, capacity defaults)
-            is already built and tested. The model, endpoints and page are the
-            next milestone.
-          </EmptyState>
-          <div className="flex justify-center pb-6">
-            <Button variant="secondary" onClick={() => onNavigate('lp')}>
-              Back to Part 1
-            </Button>
-          </div>
-        </Card>
-      </div>
-    );
-  }
-
   /* ------------------------------------------------------------------ app */
 
   function App() {
     const [page, setPage] = useState(pageFromHash);
     const [theme, toggleTheme] = useThemeToggle();
     const { dataset, adopt, restoring } = useDataset();
+    const { lpRun, publish: publishLPRun } = useLPRun(dataset && dataset.dataset_id);
 
     useEffect(() => {
       const onHashChange = () => setPage(pageFromHash());
@@ -254,9 +270,9 @@
     } else if (page === 'explorer') {
       content = <ExplorerPage dataset={dataset} />;
     } else if (page === 'lp') {
-      content = <LPPage dataset={dataset} />;
+      content = <LPPage dataset={dataset} onSolved={publishLPRun} />;
     } else {
-      content = <IPPlaceholder onNavigate={navigate} />;
+      content = <IPPage dataset={dataset} lpRun={lpRun} />;
     }
 
     return (

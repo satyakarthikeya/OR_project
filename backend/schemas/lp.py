@@ -48,6 +48,13 @@ class LPParametersIn(BaseModel):
         default=1.0, gt=0.0, le=5.0,
         description="Stress-test multiplier on per-terminal demand.",
     )
+    demand_day: Literal["mean", "p95"] = Field(
+        default=config.DEMAND_DAY_AGGREGATION,
+        description=(
+            "Which planning window D_t describes: the average day, or the "
+            "95th-percentile busy day where the slack variables switch on."
+        ),
+    )
 
 
 class LPSolveIn(LPParametersIn):
@@ -94,8 +101,10 @@ class LPAssumptionsOut(BaseModel):
     cost_labor_share: float
     congestion_delta: float
     congestion_applied: bool
-    demand_unit_scale: float
+    horizon_hours: float
+    demand_day: str
     demand_scale: float
+    staffing_ratio: float
     capacity_percentile: float
     bound_percentiles: list[float]
     n_records: int
@@ -111,6 +120,7 @@ class TerminalParametersOut(BaseModel):
     cost_worker: float
     cost_equipment: float
     demand: float
+    demand_tons: float
     capacity: float
     workforce_min: float
     workforce_max: float
@@ -215,6 +225,12 @@ class LPSolveOut(BaseModel):
     comparison: ComparisonOut | None = None
     duals: list[DualOut] = Field(default_factory=list)
     binding_constraints: list[str] = Field(default_factory=list)
+    #: Which solve produced the allocation, and which produced the duals. With
+    #: `e_t` integer these are never the same solve (MODEL.md 3.1).
+    allocation_source: str = "milp"
+    duals_source: str = "relaxation"
+    duals_penalty_inflated: bool = False
+    duals_note: str = ""
     unmet_penalty: float = 0.0
     expanded_resources: bool = False
     assumptions: LPAssumptionsOut | None = None

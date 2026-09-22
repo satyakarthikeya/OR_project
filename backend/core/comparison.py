@@ -74,6 +74,12 @@ def _delta(
 #: calling out; above it, the headline number would mislead without a caveat.
 PENALTY_DOMINANCE_THRESHOLD = 0.5
 
+#: A min-cost plan is allowed to produce less than the baseline — meeting
+#: demand is all it is asked to do. Past this relative drop in throughput,
+#: though, the saving is plainly a reduction in service rather than a more
+#: efficient way of delivering the same one, and the headline must say so.
+SERVICE_LEVEL_DROP_THRESHOLD = 0.05
+
 
 def _penalty_dominance_note(
     baseline: AllocationEvaluation,
@@ -107,6 +113,52 @@ def _penalty_dominance_note(
         f"{baseline.total_unmet_demand:.1f} units that the penalty prices at a "
         f"deliberately high rate. Read the throughput and cost rows below for "
         f"the operational change."
+    )
+
+
+def _service_level_note(
+    baseline: AllocationEvaluation,
+    optimized: AllocationEvaluation,
+    objective: Objective,
+) -> str | None:
+    """Warn when a cost saving was bought by producing less.
+
+    Minimising cost subject to demand does exactly what it is asked: on this
+    data demand sits far below observed capability, so the cheapest feasible
+    plan meets `D_t` and stops, and cost falls by roughly the same proportion
+    as throughput. That is a legitimate optimum and an illegitimate headline —
+    quoting the cost cut without the output cut compares a plan that serves
+    demand against one that served far more than demand, which is the same
+    inflated claim the penalty-dominance rule exists to prevent.
+    """
+    if objective != "min_cost":
+        return None
+    if baseline.total_throughput <= config.EPSILON:
+        return None
+
+    drop = (
+        baseline.total_throughput - optimized.total_throughput
+    ) / baseline.total_throughput
+    if drop < SERVICE_LEVEL_DROP_THRESHOLD:
+        return None
+
+    cost_cut = (
+        (baseline.total_cost - optimized.total_cost) / baseline.total_cost
+        if abs(baseline.total_cost) > config.EPSILON
+        else 0.0
+    )
+
+    return (
+        f"The {cost_cut:.0%} cost saving is bought with a {drop:.0%} fall in "
+        f"throughput, from {baseline.total_throughput:,.1f} to "
+        f"{optimized.total_throughput:,.1f} units/period. Minimising cost only "
+        f"requires demand to be met, and demand here sits well below what the "
+        f"observed allocation produced, so the cheapest plan stops at the "
+        f"demand line. Do not read it as the same service delivered more "
+        f"cheaply: both plans meet demand in full (unmet demand "
+        f"{optimized.total_unmet_demand:,.1f}), but the baseline produces far "
+        f"more than demand asked for, and the saving is what stopping at the "
+        f"demand line is worth."
     )
 
 
@@ -151,6 +203,9 @@ def compare_allocations(
     penalty_note = _penalty_dominance_note(baseline, optimized, headline)
     if penalty_note:
         all_notes.append(penalty_note)
+    service_note = _service_level_note(baseline, optimized, objective)
+    if service_note:
+        all_notes.append(service_note)
     if expanded_resources:
         all_notes.append(
             "Expanded-resources scenario: this run was solved with a larger "

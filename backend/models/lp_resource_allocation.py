@@ -6,9 +6,9 @@ never touches the dataset store (AGENT.md, "Layering rules").
 
 Formulation (SCOPE.md section 3), for terminals ``t``:
 
-    decision   w_t >= 0   workers at terminal t
-               e_t >= 0   equipment units at terminal t
-               s_t >= 0   unmet demand at terminal t (soft-constraint slack)
+    decision   w_t >= 0            workers at terminal t (continuous)
+               e_t >= 0, integer   equipment units at terminal t
+               s_t >= 0            unmet demand at terminal t (slack)
 
     max        sum_t (alpha_t w_t + beta_t e_t) - M sum_t s_t          [throughput]
     min        sum_t (cw_t w_t + ce_t e_t)      + M sum_t s_t          [cost]
@@ -18,14 +18,32 @@ Formulation (SCOPE.md section 3), for terminals ``t``:
                wmin_t <= w_t <= wmax_t, emin_t <= e_t <= emax_t   (terminal bounds)
                alpha_t w_t + beta_t e_t + s_t >= D_t              (demand, soft)
                alpha_t w_t + beta_t e_t <= Cap_t                  (physical ceiling)
+               w_t >= rho e_t                                    (staffing coupling)
                sum_t (cw_t w_t + ce_t e_t) <= B                   (budget, optional)
 
 The demand constraint is soft on purpose: a scenario whose demand cannot be met
 must report *how much* is unmet, not collapse to an Infeasible status.
+
+`w_t` is continuous because a staffing level over a shift genuinely can be 26.4;
+`e_t` is not, because you cannot run 0.43 of a forklift. The coupling constraint
+is what stops the model running machines unattended: without it the objective is
+separable in `w` and `e`, and inside the per-terminal box the LP pushes `e_t` to
+its ceiling while `w_t` sits on its floor, booking throughput through `beta_t
+e_t` with nobody driving the cranes.
+
+**Integrality costs the shadow prices, so the model is solved more than once.**
+With `e_t` integer this is a MILP and `constraint.pi` is the dual of the final
+LP relaxation at the incumbent node, not a shadow price. The MILP gives the
+allocation that gets reported; a continuous relaxation gives the duals and the
+sensitivity ranges; and when the relaxation leaves demand unmet, a third solve
+strips the penalty out so the duals are marginal throughput rather than `M`.
+Every result says which numbers came from which solve (MODEL.md sections 3.1,
+3.5).
 """
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
@@ -66,6 +84,9 @@ class AllocationProblem:
     objective: Objective = "max_throughput"
     budget: float | None = None
     penalty_factor: float = config.UNMET_DEMAND_PENALTY_FACTOR
+    #: Workers required per equipment unit. Every equipment type in the data
+    #: (Crane, Loader, Forklift, Conveyor) needs an operator.
+    staffing_ratio: float = config.STAFFING_RATIO
 
     @property
     def unmet_penalty(self) -> float:
@@ -113,6 +134,7 @@ def problem_from_parameters(
     equipment_total: float | None = None,
     budget: float | None = None,
     penalty_factor: float = config.UNMET_DEMAND_PENALTY_FACTOR,
+    staffing_ratio: float = config.STAFFING_RATIO,
 ) -> AllocationProblem:
     """Adapt derived parameters into a solvable problem.
 
@@ -141,7 +163,11 @@ def problem_from_parameters(
         demand=dict(params.demand),
         capacity=capacity,
         workforce_bounds=dict(params.workforce_bounds),
-        equipment_bounds=dict(params.equipment_bounds),
+        # e_t is integer, so CBC would tighten a fractional bound anyway.
+        equipment_bounds={
+            t: (float(math.floor(lo)), float(math.ceil(hi)))
+            for t, (lo, hi) in params.equipment_bounds.items()
+        },
         workforce_total=(
             params.workforce_total if workforce_total is None else workforce_total
         ),
@@ -151,6 +177,7 @@ def problem_from_parameters(
         objective=objective,
         budget=budget,
         penalty_factor=penalty_factor,
+        staffing_ratio=staffing_ratio,
     )
 
 
@@ -196,7 +223,7 @@ class AllocationEvaluation:
     penalty_applied: float
 
     def feasible_against(self, problem: AllocationProblem) -> bool:
-        tol = 1e-6
+        tol = config.BINDING_ABS_TOL
         if self.total_workforce > problem.workforce_total + tol:
             return False
         if self.total_equipment > problem.equipment_total + tol:
@@ -209,6 +236,8 @@ class AllocationEvaluation:
             if not elo - tol <= self.equipment[t] <= ehi + tol:
                 return False
             if self.throughput[t] > problem.capacity[t] + tol:
+                return False
+            if self.workforce[t] < problem.staffing_ratio * self.equipment[t] - tol:
                 return False
         if problem.budget is not None and self.total_cost > problem.budget + tol:
             return False
@@ -225,6 +254,17 @@ class AllocationResult:
     solution: AllocationEvaluation | None = None
     duals: list[ConstraintDual] = field(default_factory=list)
     solve_seconds: float = 0.0
+    #: Which solve the reported allocation came from. Always the MILP.
+    allocation_source: str = "milp"
+    #: Which solve the duals came from: "relaxation" when demand was met
+    #: everywhere, "relaxation_demand_met" when the penalty had to be stripped
+    #: out first, "none" when no usable relaxation was available.
+    duals_source: str = "relaxation"
+    #: True when the *raw* relaxation left demand unmet, so its duals were
+    #: driven by the penalty rate M rather than by marginal throughput.
+    duals_penalty_inflated: bool = False
+    duals_note: str = ""
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def solved(self) -> bool:
@@ -325,10 +365,32 @@ def check_problem(problem: AllocationProblem) -> tuple[list[str], list[str]]:
                 f"Raise the budget above {cheapest:,.0f} or remove the budget cap"
             )
 
+    # Constraints (4) and (7) are both hard and they can conflict: if the
+    # capacity ceiling sits below the throughput the per-terminal minimums
+    # already produce, the box is empty and CBC answers "Infeasible" for a
+    # reason the user cannot see (MODEL.md section 3.3). The coupling
+    # constraint raises that floor, so it is applied here too.
+    rho = problem.staffing_ratio
     for t in problem.terminals:
+        w_lo, w_hi = problem.workforce_bounds[t]
+        e_lo, e_hi = problem.equipment_bounds[t]
+
+        if rho * e_lo > w_hi + config.EPSILON:
+            errors.append(
+                f"Terminal {t} must run at least {e_lo:.0f} equipment units, "
+                f"which needs {rho * e_lo:.1f} operators at a staffing ratio of "
+                f"{rho:g} — above its own worker ceiling of {w_hi:.1f}"
+            )
+            suggestions.append(
+                f"Widen the scenario so {t}'s workforce bounds relax, or lower "
+                "the staffing ratio"
+            )
+            continue
+
+        coupled_floor_workers = max(w_lo, rho * e_lo)
         floor = (
-            problem.alpha[t] * problem.workforce_bounds[t][0]
-            + problem.beta[t] * problem.equipment_bounds[t][0]
+            problem.alpha[t] * coupled_floor_workers
+            + problem.beta[t] * e_lo
         )
         if floor > problem.capacity[t] + config.EPSILON:
             errors.append(
@@ -341,6 +403,24 @@ def check_problem(problem: AllocationProblem) -> tuple[list[str], list[str]]:
                 "scenario slice; widen the filters or exclude that terminal"
             )
 
+    coupled_minimum = sum(
+        max(problem.workforce_bounds[t][0], rho * problem.equipment_bounds[t][0])
+        for t in problem.terminals
+    )
+    if (
+        coupled_minimum > problem.workforce_total + config.EPSILON
+        and min_workers <= problem.workforce_total + config.EPSILON
+    ):
+        errors.append(
+            f"The minimum equipment across terminals needs {coupled_minimum:.1f} "
+            f"operators at a staffing ratio of {rho:g}, above the worker pool "
+            f"({problem.workforce_total:.1f})"
+        )
+        suggestions.append(
+            f"Raise the worker pool to at least {coupled_minimum:.0f}, or lower "
+            "the equipment minimums by widening the scenario"
+        )
+
     return errors, suggestions
 
 
@@ -352,22 +432,33 @@ def _dual_of(constraint: pulp.LpConstraint) -> float:
     return 0.0 if value is None else float(value)
 
 
-def solve_allocation(
-    problem: AllocationProblem, time_limit: int | None = None
-) -> AllocationResult:
-    """Build and solve the LP. Infeasibility is a result, never an exception."""
-    label = OBJECTIVE_LABELS[problem.objective]
+#: One tracked constraint: (name, kind, terminal, sense, right-hand side).
+TrackedConstraint = tuple[str, str, str | None, str, float]
 
-    errors, suggestions = check_problem(problem)
-    if errors:
-        return AllocationResult(
-            status="Infeasible",
-            objective=problem.objective,
-            objective_label=label,
-            message="; ".join(errors),
-            suggestions=suggestions,
-        )
 
+@dataclass
+class _Build:
+    model: pulp.LpProblem
+    workforce: dict[str, pulp.LpVariable]
+    equipment: dict[str, pulp.LpVariable]
+    slack: dict[str, pulp.LpVariable]
+    tracked: list[TrackedConstraint]
+
+
+def _build_model(
+    problem: AllocationProblem,
+    integer_equipment: bool,
+    drop_demand_for: set[str] | None = None,
+) -> _Build:
+    """Assemble the model.
+
+    `integer_equipment` switches between the reportable MILP and the continuous
+    relaxation the duals are read from. `drop_demand_for` removes the demand
+    constraint (and its slack) at terminals whose demand is unreachable, which
+    is how the penalty term is taken out of the objective entirely so the
+    remaining duals are marginal throughput rather than multiples of `M`.
+    """
+    dropped = drop_demand_for or set()
     sense = (
         pulp.LpMaximize if problem.objective == "max_throughput" else pulp.LpMinimize
     )
@@ -386,12 +477,14 @@ def solve_allocation(
             f"equipment_{t}",
             lowBound=problem.equipment_bounds[t][0],
             upBound=problem.equipment_bounds[t][1],
+            cat=pulp.LpInteger if integer_equipment else pulp.LpContinuous,
         )
         for t in problem.terminals
     }
     s = {
         t: pulp.LpVariable(f"unmet_{t}", lowBound=0)
         for t in problem.terminals
+        if t not in dropped
     }
 
     throughput = {
@@ -409,7 +502,7 @@ def solve_allocation(
     else:
         model += pulp.lpSum(cost.values()) + penalty, "objective"
 
-    tracked: list[tuple[str, str, str | None, str, float]] = []
+    tracked: list[TrackedConstraint] = []
 
     model += pulp.lpSum(w.values()) <= problem.workforce_total, "worker_pool"
     tracked.append(("worker_pool", "resource_pool", None, "<=",
@@ -420,22 +513,73 @@ def solve_allocation(
                     problem.equipment_total))
 
     for t in problem.terminals:
-        model += throughput[t] + s[t] >= problem.demand[t], f"demand_{t}"
-        tracked.append((f"demand_{t}", "demand", t, ">=", problem.demand[t]))
+        if t not in dropped:
+            model += throughput[t] + s[t] >= problem.demand[t], f"demand_{t}"
+            tracked.append((f"demand_{t}", "demand", t, ">=", problem.demand[t]))
 
         model += throughput[t] <= problem.capacity[t], f"capacity_{t}"
         tracked.append((f"capacity_{t}", "capacity", t, "<=", problem.capacity[t]))
+
+        # (5) Staffing coupling. Without it the objective is separable in w and
+        # e, and the LP runs every machine unattended.
+        model += w[t] >= problem.staffing_ratio * e[t], f"staffing_{t}"
+        tracked.append((f"staffing_{t}", "staffing", t, ">=", 0.0))
 
     if problem.budget is not None:
         model += pulp.lpSum(cost.values()) <= problem.budget, "budget"
         tracked.append(("budget", "budget", None, "<=", problem.budget))
 
+    return _Build(model=model, workforce=w, equipment=e, slack=s, tracked=tracked)
+
+
+def _solve(build: _Build, time_limit: int | None) -> tuple[str, float]:
     solver = pulp.PULP_CBC_CMD(msg=False, timeLimit=time_limit)
     start = time.perf_counter()
-    model.solve(solver)
-    elapsed = time.perf_counter() - start
+    build.model.solve(solver)
+    return pulp.LpStatus[build.model.status], time.perf_counter() - start
 
-    status = pulp.LpStatus[model.status]
+
+def _read(
+    build: _Build, problem: AllocationProblem
+) -> AllocationEvaluation:
+    workforce = {
+        t: float(build.workforce[t].value() or 0.0) for t in problem.terminals
+    }
+    equipment = {
+        t: float(build.equipment[t].value() or 0.0) for t in problem.terminals
+    }
+    return evaluate_allocation(problem, workforce, equipment)
+
+
+def solve_allocation(
+    problem: AllocationProblem, time_limit: int | None = None
+) -> AllocationResult:
+    """Solve the allocation. Infeasibility is a result, never an exception.
+
+    The reported allocation always comes from the MILP. The duals always come
+    from a continuous relaxation, and when that relaxation leaves demand unmet
+    they come from a *second* relaxation with the unreachable demand
+    constraints removed — because with `s_t > 0` the pool duals are driven by
+    `M * alpha_t` rather than by marginal throughput, and the demand dual pins
+    to exactly `M`. At `M = 10x` the largest coefficient, quoting those
+    unqualified overstates the value of a worker by an order of magnitude
+    (MODEL.md section 3.5).
+    """
+    label = OBJECTIVE_LABELS[problem.objective]
+
+    errors, suggestions = check_problem(problem)
+    if errors:
+        return AllocationResult(
+            status="Infeasible",
+            objective=problem.objective,
+            objective_label=label,
+            message="; ".join(errors),
+            suggestions=suggestions,
+        )
+
+    milp = _build_model(problem, integer_equipment=True)
+    status, elapsed = _solve(milp, time_limit)
+
     if status != "Optimal":
         return AllocationResult(
             status=status,
@@ -444,7 +588,8 @@ def solve_allocation(
             message=(
                 f"The solver returned '{status}'. The soft demand constraints "
                 "make plain demand shortfalls impossible to hit, so this points "
-                "at the resource pools, the bounds or the budget."
+                "at the resource pools, the bounds, the staffing coupling or "
+                "the budget."
             ),
             suggestions=[
                 "Raise the worker or equipment pool",
@@ -455,11 +600,10 @@ def solve_allocation(
         )
 
     # Never read variable values before checking the status above.
-    workforce = {t: float(w[t].value() or 0.0) for t in problem.terminals}
-    equipment = {t: float(e[t].value() or 0.0) for t in problem.terminals}
-    evaluation = evaluate_allocation(problem, workforce, equipment)
-
-    duals = _collect_duals(model, tracked, problem, evaluation)
+    evaluation = _read(milp, problem)
+    duals, duals_source, inflated, note, extra = _duals_from_relaxation(
+        problem, time_limit
+    )
 
     return AllocationResult(
         status="Optimal",
@@ -468,7 +612,77 @@ def solve_allocation(
         message=f"Solved to optimality: {label.lower()}.",
         solution=evaluation,
         duals=duals,
-        solve_seconds=elapsed,
+        solve_seconds=elapsed + extra,
+        allocation_source="milp",
+        duals_source=duals_source,
+        duals_penalty_inflated=inflated,
+        duals_note=note,
+    )
+
+
+_MILP_DUAL_NOTE = (
+    "Equipment is an integer variable, so the allocation above is a MILP "
+    "solution and CBC's constraint duals at the incumbent node are not shadow "
+    "prices. The shadow prices below are read from the continuous relaxation "
+    "of the same problem"
+)
+
+
+def _duals_from_relaxation(
+    problem: AllocationProblem, time_limit: int | None
+) -> tuple[list[ConstraintDual], str, bool, str, float]:
+    """Shadow prices, taken from a relaxation with the penalty stripped out."""
+    relaxed = _build_model(problem, integer_equipment=False)
+    status, elapsed = _solve(relaxed, time_limit)
+    if status != "Optimal":
+        return ([], "none", False,
+                "The continuous relaxation did not solve, so no shadow prices "
+                "are available for this scenario.", elapsed)
+
+    evaluation = _read(relaxed, problem)
+    unmet = {
+        t for t in problem.terminals
+        if evaluation.unmet_demand[t] > config.BINDING_ABS_TOL
+    }
+
+    if not unmet:
+        return (
+            _collect_duals(relaxed.model, relaxed.tracked, problem, evaluation),
+            "relaxation", False,
+            f"{_MILP_DUAL_NOTE}, in which demand is met at every terminal, so "
+            "no dual is inflated by the unmet-demand penalty.",
+            elapsed,
+        )
+
+    # Demand is unreachable somewhere, so every dual in this solve is a
+    # multiple of M. Drop the unreachable demand constraints — which removes
+    # the penalty from the objective entirely — and re-read.
+    clean = _build_model(problem, integer_equipment=False, drop_demand_for=unmet)
+    clean_status, clean_elapsed = _solve(clean, time_limit)
+    elapsed += clean_elapsed
+
+    shortfall = ", ".join(sorted(unmet))
+    if clean_status != "Optimal":
+        return (
+            _collect_duals(relaxed.model, relaxed.tracked, problem, evaluation),
+            "relaxation", True,
+            f"{_MILP_DUAL_NOTE}. Demand cannot be met at {shortfall}, so these "
+            "duals are driven by the unmet-demand penalty rate M rather than by "
+            "marginal throughput and must not be quoted as the value of a "
+            "worker. A penalty-free re-solve was attempted and did not succeed.",
+            elapsed,
+        )
+
+    clean_evaluation = _read(clean, problem)
+    return (
+        _collect_duals(clean.model, clean.tracked, problem, clean_evaluation),
+        "relaxation_demand_met", True,
+        f"{_MILP_DUAL_NOTE}. Demand cannot be met at {shortfall}, which would "
+        "have pinned every dual to a multiple of the penalty rate M, so those "
+        "demand constraints were dropped and the relaxation re-solved without "
+        "any penalty term. The prices below are marginal throughput; the "
+        f"shortfall at {shortfall} is reported in the allocation table.",
+        elapsed,
     )
 
 
@@ -491,7 +705,7 @@ def _collect_duals(
         if constraint is None:
             continue
 
-        lhs = _lhs_value(name, kind, terminal, evaluation)
+        lhs = _lhs_value(name, kind, terminal, problem, evaluation)
         slack = (rhs - lhs) if sense == "<=" else (lhs - rhs)
         shadow = _dual_of(constraint)
         binding = _is_binding(slack, rhs, shadow)
@@ -535,6 +749,7 @@ def _lhs_value(
     name: str,
     kind: str,
     terminal: str | None,
+    problem: AllocationProblem,
     evaluation: AllocationEvaluation,
 ) -> float:
     if kind == "resource_pool":
@@ -548,6 +763,12 @@ def _lhs_value(
     assert terminal is not None
     if kind == "demand":
         return evaluation.throughput[terminal] + evaluation.unmet_demand[terminal]
+    if kind == "staffing":
+        # w_t - rho e_t >= 0, so the headroom is operators beyond the minimum.
+        return (
+            evaluation.workforce[terminal]
+            - problem.staffing_ratio * evaluation.equipment[terminal]
+        )
     return evaluation.throughput[terminal]
 
 
@@ -579,6 +800,12 @@ def _interpret(
         return (
             f"Binding{where}. Demand is met exactly; one more unit of demand "
             f"costs {magnitude}."
+        )
+    if kind == "staffing":
+        return (
+            f"Binding{where}. Every equipment unit there is fully crewed at "
+            f"the assumed operator ratio; one more worker releases "
+            f"{magnitude} through the machines they would run."
         )
     if kind == "budget":
         return (

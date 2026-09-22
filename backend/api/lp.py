@@ -68,6 +68,7 @@ def _derive(payload: LPParametersIn) -> LPParameters:
             congestion_delta=payload.congestion_delta,
             apply_congestion=payload.apply_congestion,
             demand_scale=payload.demand_scale,
+            demand_day=payload.demand_day,
         )
     except ValueError as exc:
         # An empty scenario slice is a bad request, not a server fault.
@@ -100,8 +101,14 @@ def _derivation_notes(params: LPParameters) -> list[DerivationNote]:
     """The audit trail for the parameters panel."""
     theta = params.assumptions["labor_share"]
     theta_c = params.assumptions["cost_labor_share"]
-    scale = params.assumptions["demand_unit_scale"]
+    horizon = params.assumptions["horizon_hours"]
+    demand_day = params.assumptions["demand_day"]
+    rho = params.assumptions["staffing_ratio"]
     delta = params.assumptions["congestion_delta"]
+    day_label = (
+        "the 95th-percentile busy day" if demand_day == "p95"
+        else "the average day"
+    )
 
     notes = [
         DerivationNote(
@@ -139,13 +146,34 @@ def _derivation_notes(params: LPParameters) -> list[DerivationNote]:
         ),
         DerivationNote(
             symbol="D_t",
-            name="Demand",
-            formula=f"D_t = mean(Demand_Forecast_t) × {scale:.4f}",
+            name="Demand — a level over the horizon",
+            formula=(
+                f"D_t = (Σ_i∈t Demand_Forecast_i over {day_label}) / H"
+                f"   (H = {horizon:g} h)"
+            ),
             explanation=(
-                "Demand_Forecast and Throughput_Rate are on different scales "
-                "(means ≈ 80 and ≈ 65), so the forecast is rescaled by "
-                "mean(Throughput_Rate) / mean(Demand_Forecast) before it can "
-                "sit in a throughput constraint."
+                "Demand_Forecast is a per-shipment tonnage and Throughput_Rate "
+                "is tons per hour — a difference of dimension, not of scale. "
+                "Summing the forecast over a terminal's window gives the tons "
+                "arriving there, a level; only dividing by the horizon H makes "
+                "it a rate the production function can be compared against. A "
+                "mean would make a busy terminal and a quiet one identical, and "
+                "a rescaling factor would keep tons as tons while pinning D_t "
+                "to observed capability by construction."
+            ),
+        ),
+        DerivationNote(
+            symbol="ρ",
+            name="Staffing coupling",
+            formula=f"w_t ≥ ρ · e_t   (ρ = {rho:g})",
+            explanation=(
+                "Every equipment type in the data needs an operator. Without "
+                "this the objective is separable in w and e, so inside the "
+                "per-terminal box the model pushes equipment to its ceiling "
+                "while workers sit on the floor and still books throughput "
+                "through β_t e_t, with nobody driving the cranes. A stated "
+                "operational assumption: the observed ratio of about 3.6 "
+                "workers per machine clears it, so the baseline stays feasible."
             ),
         ),
         DerivationNote(
@@ -240,6 +268,7 @@ def _terminal_rows(params: LPParameters) -> list[TerminalParametersOut]:
             cost_worker=params.cost_worker[t],
             cost_equipment=params.cost_equipment[t],
             demand=params.demand[t],
+            demand_tons=params.demand_tons[t],
             capacity=params.capacity[t],
             workforce_min=params.workforce_bounds[t][0],
             workforce_max=params.workforce_bounds[t][1],
@@ -378,10 +407,14 @@ def lp_solve(payload: LPSolveIn) -> LPSolveOut:
         comparison=_comparison_out(block),
         duals=[DualOut(**vars(d)) for d in result.duals],
         binding_constraints=[d.name for d in result.duals if d.binding],
+        allocation_source=result.allocation_source,
+        duals_source=result.duals_source,
+        duals_penalty_inflated=result.duals_penalty_inflated,
+        duals_note=result.duals_note,
         unmet_penalty=problem.unmet_penalty,
         expanded_resources=expanded,
         assumptions=_assumptions(params),
-        warnings=list(params.warnings),
+        warnings=list(params.warnings) + list(result.warnings),
     )
 
 
