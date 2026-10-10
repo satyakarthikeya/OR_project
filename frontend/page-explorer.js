@@ -80,8 +80,8 @@
       AC.plot(node, [{
         type: 'heatmap', z, x: labels, y: labels, zmin: -bound, zmax: bound,
         // Diverging through the panel's own ground, so "no correlation" reads as the surface itself.
-        colorscale: [[0, dark ? '#F27469' : '#B3261E'], [0.5, dark ? 'rgb(23,27,31)' : 'rgb(252,252,251)'],
-                     [1, dark ? '#4FB894' : '#1F7A5C']],
+        colorscale: [[0, dark ? '#F97066' : '#B42318'], [0.5, dark ? 'rgb(19,27,43)' : 'rgb(255,255,255)'],
+                     [1, dark ? '#47CD89' : '#027A48']],
         hovertemplate: '%{y} x %{x}<br>r = %{z:.3f}<extra></extra>',
         colorbar: { thickness: 10, len: 0.85, outlinewidth: 0, tickfont: { size: 10 } },
       }], { xaxis: { tickangle: -45, showgrid: false }, yaxis: { autorange: 'reversed', showgrid: false } }, 420);
@@ -90,7 +90,7 @@
     const seg = el('div', { class: 'seg' });
     const options = [['full', 'Scale -1...1'], ['zoom', `Zoom +/-${zoomBound.toFixed(2)}`]];
     const paintSeg = () => {
-      AC.clear(seg).append(options.map(([value, label]) => el('button', {
+      AC.clear(seg).append(...options.map(([value, label]) => el('button', {
         type: 'button', class: scale === value ? 'on' : '',
         onclick: () => { scale = value; paintSeg(); draw(); },
       }, label)));
@@ -125,7 +125,7 @@
     const paint = () => {
       const active = counts.find((c) => c.column === column) || counts[0];
       const entries = Object.entries(active.counts).sort((a, b) => b[1] - a[1]);
-      AC.clear(chips).append(counts.map((c) => el('button', {
+      AC.clear(chips).append(...counts.map((c) => el('button', {
         type: 'button', class: `chip ${c.column === active.column ? 'on' : ''}`,
         onclick: () => { column = c.column; paint(); },
       }, short(c.column))));

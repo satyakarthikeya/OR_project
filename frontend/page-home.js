@@ -48,7 +48,7 @@
         el('div', { class: 'row' }, AC.badge('Loaded', 'pos'), el('strong', {}, current.name)),
         el('div', { style: 'margin-top:14px' }, kv([
           ['Records', fmt.int(current.n_rows)],
-          ['Columns after cleaning', fmt.int(current.n_columns)],
+          ['Columns (incl. derived)', fmt.int(current.n_columns)],
           ['Dataset ID', current.dataset_id],
           ['Loaded at', new Date(current.uploaded_at).toLocaleString()],
         ])),
@@ -80,14 +80,12 @@
 
   function renderParts() {
     const host = AC.clear(AC.$('#parts'));
-    PARTS.forEach((p) => host.append(AC.panel(p.tag, el('div', {},
-      AC.badge(p.tag, 'accent'),
-      el('h3', { style: 'margin-top:10px;font-size:15px' }, p.title),
-      el('p', { class: 'muted', style: 'font-style:italic;margin-top:4px' }, p.question),
-      el('ul', { class: 'ticks' }, p.points.map((t) => el('li', {}, t))),
-      el('div', { style: 'margin-top:14px' }, current
+    PARTS.forEach((p) => host.append(AC.panel(`${p.tag} · ${p.title}`, el('div', {},
+      el('p', { class: 'muted' }, p.question),
+      el('ul', { class: 'ticks', style: 'margin-top:10px' }, p.points.map((t) => el('li', {}, t))),
+      current
         ? el('a', { class: 'btn btn-primary', href: p.href }, p.label)
-        : el('button', { class: 'btn', type: 'button', disabled: true }, 'Load a dataset first'))))));
+        : el('button', { class: 'btn', type: 'button', disabled: true }, 'Load a dataset first')))));
   }
 
   function renderAll() { renderDataset(); renderParts(); }
@@ -154,7 +152,7 @@
     try {
       const h = await api.health();
       AC.clear(servicePanel).append(AC.panel('Service', el('div', {},
-        el('p', { class: 'muted' }, 'Backend and solver availability.'),
+        el('p', { class: 'muted' }, 'Server and solver status.'),
         statusRow('API', h.status === 'ok', h.status),
         statusRow('Solver', h.solver_available, h.solver_name),
         el('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:8px' },

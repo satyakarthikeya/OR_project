@@ -19,7 +19,7 @@
   const DEMAND_DAYS = [['mean', 'Average day'], ['p95', 'Busy day (p95)']];
   const PEAK = [[null, 'All hours'], [1, 'Peak'], [0, 'Off-peak']];
   // Mid-tone colours that read on both the light and the dark theme.
-  const C = { accent: '#E9A32E', muted: '#7D848C', good: '#1F9A73', bad: '#D4453B' };
+  const C = { accent: '#2563EB', muted: '#98A2B3', good: '#12B76A', bad: '#F04438' };
 
   const dataset = await AC.shell('lp', { needsDataset: true });
   if (!dataset) return;

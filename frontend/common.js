@@ -143,25 +143,28 @@
   function chartTheme() {
     const dark = theme() === 'dark';
     return {
-      font: dark ? '#B2B8BF' : '#474D54',
-      grid: dark ? 'rgba(150,156,164,0.14)' : 'rgba(106,112,120,0.14)',
-      hoverBg: dark ? '#171B1F' : '#FFFFFF',
-      series: dark ? ['#F0AE45', '#5A636C', '#4FB894', '#F27469', '#7FA8C9']
-                   : ['#D9902A', '#AFB4AC', '#1F7A5C', '#B3261E', '#41688A'],
+      font: dark ? '#D0D5DD' : '#344054',
+      grid: dark ? 'rgba(152,162,179,0.16)' : 'rgba(102,112,133,0.16)',
+      hoverBg: dark ? '#131B2B' : '#FFFFFF',
+      series: dark ? ['#5B8DEF', '#667085', '#47CD89', '#F97066', '#FEC84B']
+                   : ['#2563EB', '#98A2B3', '#027A48', '#B42318', '#F79009'],
     };
   }
 
   /** plot(node, traces, layout) - draws now and redraws when the theme flips. */
   function plot(node, data, layout, height) {
     node.style.height = `${height || 320}px`;
+    // A chart built before its node is on the page would be sized wrongly, so wait for it.
+    let waited = 0;
     const draw = () => {
+      if (!node.isConnected && waited++ < 60) { requestAnimationFrame(draw); return; }
       if (!window.Plotly) { node.textContent = 'Chart library failed to load.'; return; }
       const t = chartTheme();
       const axis = { gridcolor: t.grid, zerolinecolor: t.grid, linecolor: t.grid, automargin: true,
-                     tickfont: { size: 10, family: '"IBM Plex Mono", monospace' } };
+                     tickfont: { size: 10, family: 'system-ui, sans-serif' } };
       window.Plotly.react(node, data, {
         margin: { l: 8, r: 8, t: 8, b: 8 }, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-        font: { color: t.font, size: 11, family: '"IBM Plex Sans", system-ui, sans-serif' },
+        font: { color: t.font, size: 11, family: 'Inter, system-ui, sans-serif' },
         colorway: t.series,
         hoverlabel: { bgcolor: t.hoverBg, bordercolor: t.grid, font: { color: t.font, size: 11 } },
         legend: { orientation: 'h', y: -0.2, x: 0, font: { size: 10 } },
@@ -231,9 +234,9 @@
       href: p.href, class: `${p.id === activeId ? 'active' : ''} ${p.needsDataset && !live ? 'disabled' : ''}`,
     }, p.label)));
     const toggle = el('button', { class: 'btn', type: 'button', onclick: () => setTheme(theme() === 'dark' ? 'light' : 'dark') }, 'Theme');
-    const status = el('span', { class: 'field-label' }, live ? `dataset ${live.name || live.dataset_id}` : 'no dataset loaded');
+    const status = el('span', { class: 'field-label' }, live ? live.name || live.dataset_id : 'No dataset loaded');
     document.body.prepend(el('header', { class: 'site-header' },
-      el('div', { class: 'inner' }, el('a', { class: 'brand', href: 'index.html' }, 'AIR CARGO ', el('b', {}, 'DISPATCH DESK')),
+      el('div', { class: 'inner' }, el('a', { class: 'brand', href: 'index.html' }, 'Air Cargo ', el('b', {}, 'Optimiser')),
         nav, el('div', { class: 'header-right' }, status, toggle))));
 
     const main = $('main');
