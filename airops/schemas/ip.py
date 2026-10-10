@@ -21,8 +21,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from backend.core import config
-from backend.schemas.common import ScenarioFiltersIn, SolveStatus
+from airops.core import config
+from airops.schemas.common import ScenarioFiltersIn, SolveStatus
 
 
 # --- Requests ----------------------------------------------------------------

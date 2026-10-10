@@ -5,9 +5,9 @@ from __future__ import annotations
 import numpy as np
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from backend.core import config, data_loader, preprocessing
-from backend.core.store import DatasetNotFound, store
-from backend.schemas.datasets import (
+from airops.core import config, data_loader, preprocessing
+from airops.core.store import DatasetNotFound, store
+from airops.schemas.datasets import (
     CategoryCount,
     DatasetOut,
     DatasetSummaryOut,

@@ -10,8 +10,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.core import config
-from backend.main import app
+from airops.core import config
+from airops.main import app
 
 client = TestClient(app)
 
@@ -320,7 +320,7 @@ def test_sensitivity_rejects_an_inverted_range(dataset_id: str) -> None:
 
 
 def test_repeated_parameter_calls_are_cached(dataset_id: str) -> None:
-    from backend.core import preprocessing
+    from airops.core import preprocessing
 
     preprocessing.clear_parameter_cache()
     payload = {"dataset_id": dataset_id, "labor_share": 0.55}

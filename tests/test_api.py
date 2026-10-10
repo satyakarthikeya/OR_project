@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.core import config
-from backend.main import app
+from airops.core import config
+from airops.main import app
 
 client = TestClient(app)
 

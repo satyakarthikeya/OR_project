@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from backend.core import data_loader
+from airops.core import data_loader
 
 
 class DatasetNotFound(KeyError):
@@ -70,7 +70,7 @@ class DatasetStore:
 
 
 def config_bundled_name() -> str:
-    from backend.core import config
+    from airops.core import config
 
     return config.BUNDLED_DATASET.name
 

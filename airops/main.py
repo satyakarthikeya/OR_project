@@ -8,10 +8,10 @@ import pulp
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from backend.api import datasets, ip, lp
-from backend.core import config
-from backend.core.store import store
-from backend.schemas.common import HealthOut
+from airops.api import datasets, ip, lp
+from airops.core import config
+from airops.core.store import store
+from airops.schemas.common import HealthOut
 
 app = FastAPI(
     title="Air Cargo Resource Allocation & Operational Optimization",

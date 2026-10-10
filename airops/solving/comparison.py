@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from backend.core import config
-from backend.models.lp_resource_allocation import AllocationEvaluation, Objective
+from airops.core import config
+from airops.solving.lp_results import AllocationEvaluation
+from or_models.inputs import Objective
 
 
 @dataclass

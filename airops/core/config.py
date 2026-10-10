@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from or_models import inputs as model_inputs
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BUNDLED_DATASET = PROJECT_ROOT / "air_cargo_resource_allocation_dataset.csv"
 
@@ -113,7 +115,7 @@ CAPACITY_PERCENTILE = 0.95
 #: A stated operational assumption, not a data finding: the observed ratio of
 #: about 3.6 workers per machine clears it comfortably, which is what keeps the
 #: observed baseline feasible under the coupling constraint.
-STAFFING_RATIO = 1.5
+STAFFING_RATIO = model_inputs.DEFAULT_STAFFING_RATIO
 
 #: How the per-day demand levels behind `D_t` are collapsed into one planning
 #: window. "mean" is the average day; "p95" is the busy day where the slack
@@ -127,7 +129,7 @@ BOUND_HIGH_PERCENTILE = 0.95
 
 #: Penalty per unit of unmet demand. Scaled against the objective at build time
 #: so the solver always prefers meeting demand over saving cost.
-UNMET_DEMAND_PENALTY_FACTOR = 10.0
+UNMET_DEMAND_PENALTY_FACTOR = model_inputs.DEFAULT_PENALTY_FACTOR
 
 #: Terminal slices thinner than this make group means unstable; callers warn.
 MIN_ROWS_PER_TERMINAL = 30
@@ -171,9 +173,9 @@ LAMBDA_MAX = 1.0
 URGENCY_UPLIFT_CAP = 0.9
 
 #: Priority classes whose shipments the force-Critical policy toggle pins in.
-FORCED_PRIORITY = "Critical"
-HAZARDOUS_CARGO_TYPE = "Hazardous"
-PERISHABLE_CARGO_TYPE = "Perishable"
+FORCED_PRIORITY = model_inputs.FORCED_PRIORITY
+HAZARDOUS_CARGO_TYPE = model_inputs.HAZARDOUS_CARGO_TYPE
+PERISHABLE_CARGO_TYPE = model_inputs.PERISHABLE_CARGO_TYPE
 
 #: Capacities default to this fraction of the batch totals, which keeps the
 #: knapsack binding but always feasible.

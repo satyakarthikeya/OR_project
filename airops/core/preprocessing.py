@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from backend.core import config
+from airops.core import config
 
 
 # --- Scenario selection -----------------------------------------------------

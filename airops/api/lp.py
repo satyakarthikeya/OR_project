@@ -13,13 +13,14 @@ from __future__ import annotations
 import numpy as np
 from fastapi import APIRouter, HTTPException
 
-from backend.core import baseline as baseline_mod
-from backend.core import comparison, config, preprocessing
-from backend.core.preprocessing import LPParameters, ScenarioFilters
-from backend.core.store import DatasetNotFound, store
-from backend.models import lp_resource_allocation as lp
-from backend.schemas.common import ScenarioFiltersIn, SolveStatus
-from backend.schemas.lp import (
+from airops.solving import baseline as baseline_mod
+from airops.core import config, preprocessing
+from airops.solving import comparison
+from airops.core.preprocessing import LPParameters, ScenarioFilters
+from airops.core.store import DatasetNotFound, store
+from airops.solving import lp_runner as lp
+from airops.schemas.common import ScenarioFiltersIn, SolveStatus
+from airops.schemas.lp import (
     AllocationRow,
     ComparisonOut,
     DerivationNote,

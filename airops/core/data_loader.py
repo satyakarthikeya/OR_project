@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from backend.core import config
+from airops.core import config
 
 
 @dataclass

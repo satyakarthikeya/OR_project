@@ -15,13 +15,13 @@ from __future__ import annotations
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 
-from backend.core import baseline as baseline_mod
-from backend.core import config, preprocessing
-from backend.core.preprocessing import ScenarioFilters
-from backend.core.store import DatasetNotFound, store
-from backend.models import ip_shipment_selection as ip
-from backend.schemas.common import ScenarioFiltersIn, SolveStatus
-from backend.schemas.ip import (
+from airops.solving import baseline as baseline_mod
+from airops.core import config, preprocessing
+from airops.core.preprocessing import ScenarioFilters
+from airops.core.store import DatasetNotFound, store
+from airops.solving import ip_runner as ip
+from airops.schemas.common import ScenarioFiltersIn, SolveStatus
+from airops.schemas.ip import (
     BatchTotalsOut,
     CapacityDefaultsOut,
     CapacityUseOut,

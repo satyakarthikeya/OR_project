@@ -11,18 +11,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from backend.core import config
-from backend.core.preprocessing import LPParameters
-from backend.models.ip_shipment_selection import (
-    SelectionEvaluation,
-    SelectionProblem,
-    evaluate_selection,
-)
-from backend.models.lp_resource_allocation import (
-    AllocationEvaluation,
-    AllocationProblem,
-    evaluate_allocation,
-)
+from airops.core import config
+from airops.core.preprocessing import LPParameters
+from airops.solving.ip_results import SelectionEvaluation, evaluate_selection
+from airops.solving.lp_results import AllocationEvaluation, evaluate_allocation
+from or_models.inputs import AllocationProblem, SelectionProblem
 
 
 @dataclass
