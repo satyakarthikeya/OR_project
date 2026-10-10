@@ -7,4 +7,3 @@ __pycache__/
 *.mps
 *-pulp.sol
 .DS_Store
-node_modules/

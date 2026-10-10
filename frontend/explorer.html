@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Data Explorer - Air Cargo Dispatch Desk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23171b1f'/><rect x='5' y='19' width='4' height='8' fill='%23e9a32e'/><rect x='12' y='13' width='4' height='14' fill='%23e9a32e'/><rect x='19' y='6' width='4' height='21' fill='%23e9a32e'/></svg>" />
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <script src="common.js"></script>
+</head>
+<body>
+  <main>
+    <div class="page-head">
+      <div class="field-label">Data explorer</div>
+      <h1>What the data actually says</h1>
+      <p>Descriptive statistics for the loaded scenario, plus the one finding that shapes every model
+         in this project: the columns carry no mutual information.</p>
+    </div>
+    <div id="caveat"></div>
+    <noscript><div class="callout bad">This application requires JavaScript.</div></noscript>
+    <div id="content"></div>
+  </main>
+  <script src="page-explorer.js"></script>
+</body>
+</html>
