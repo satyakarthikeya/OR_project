@@ -111,8 +111,8 @@ frontend/                # plain HTML + CSS + vanilla JS, no build step — serv
 ├── page-explorer.js     # Data Explorer script
 ├── page-lp.js           # Part 1 script
 ├── page-ip.js           # Part 2 script
-├── style.css            # shared: CSS-variable colour tokens, light + dark via data-theme
-└── common.js            # global `AC`: API wrappers, DOM helpers, theme, dataset id, AC.handoff
+├── style.css            # shared: one white theme, CSS-variable colour tokens
+└── common.js            # global `AC`: API wrappers, DOM helpers, AC.ui widgets, AC.workbench, AC.colors, dataset id, AC.handoff
 
 tests/                   # run `pytest` from the repo root
 ├── test_preprocessing.py
@@ -174,26 +174,40 @@ Dependencies point one way: `airops/api/` → `airops/solving/` → `or_models/`
 
 **Decided: no build step, no npm, no Node. NEVER add `package.json` or `node_modules`.** The
 frontend is plain HTML, CSS and vanilla JavaScript. Each page is an `.html` file with its own
-`page-*.js`; `style.css` and `common.js` load on every page. Plotly 2.35.2 and IBM Plex load
+`page-*.js`; `style.css` and `common.js` load on every page. Plotly 2.35.2, Inter, Source Serif 4 and JetBrains Mono load
 from CDN, pinned. One `uvicorn` command runs everything.
 
-- **Colour comes only from semantic tokens.** `style.css` defines the colour tokens as CSS
-  variables, and light and dark themes are switched by `data-theme`. Use the token everywhere:
-  **never** a raw palette value or a hard-coded hex in a page or script. A theme styled in only
-  one mode is a bug, because it means the other inherited.
-- **Signal amber is the accent.** Spend it only on active navigation, the primary action,
-  focus rings, binding-constraint stripes and the lead chart series. Jade (`pos`) and brick
-  (`neg`) are a separate semantic axis and never stand in for it.
-- **Square corners.** Every border radius is ≤ 3px. Panels are ruled sheets: hairline border,
-  no shadows, full-width rule under the header.
-- **Typography is IBM Plex.** Sans for prose, Mono for every numeral, symbol, constraint name
-  and small-caps label.
-- **Structure encodes state.** A table row can carry a left severity stripe. The standing
-  caveat uses the hazard-tape apron edge, which nothing else may use. Do not add a device that
-  says nothing.
-- **Chart colours are the one literal.** Plotly cannot read CSS variables, so its colour
-  strings are the only literals outside `style.css`. Keep them in one place and change them
-  together with the token they mirror.
+- **One light theme, no dark mode — the "journal" look** (after the typeui.sh *Claude* skill).
+  `style.css` defines every colour as a CSS variable on `:root`; **never** write a raw hex in a
+  page or script. Ground is warm ivory (`--page`), ink near-black, text warm grey.
+- **Clay is the only accent** (`--accent`): focus rings, the left row stripe for a binding
+  constraint / IP-only choice, and the lead chart series. Emphasis is weight and underline, not
+  colour. Green (`pos`) and red (`neg`) only mean good / bad; amber is for the caveat and warnings.
+- **Typography:** Inter for UI, Source Serif 4 only at display scale (page title, section titles,
+  KPI numbers), JetBrains Mono for formulas. Scale 12/14/16/20/24/32; spacing 4/8/12/16/24/32,
+  48 between sections. Tabular numerals (`.num`) on every number.
+- **Hard-edged.** No shadows, no rounded corners — the one exception is the primary button
+  (flat top, rounded bottom). Sections are a serif title over a 1px ink rule (`AC.panel`);
+  `AC.fold` is a collapsible section. Headline numbers (`AC.kpis`) sit on an inverted near-black
+  band; inside a fold or the settings panel they stay light.
+- **Layout: settings left, answer right.** LP and IP use `AC.workbench`: a sticky settings
+  panel whose body scrolls on its own, with Solve pinned to its foot (on a phone the foot sticks
+  to the bottom of the screen), and results beside it. The few settings people change are
+  visible; the rest sit in closed folds. A result opens with one plain sentence
+  (`AC.headline`) — quoting throughput, cost or value, never the objective % — then the numbers.
+- **Controls come from `AC.ui`** (slider, toggle, segmented, chips, numberInput, group). Each
+  returns a node with `.set()` / `.setDisabled()`. A switch and the control it enables sit in one
+  `AC.ui.group`. Explanations go in the widget's `help` (behind a "?" button); warnings the user
+  must see stay as visible callouts.
+- **The header is the 1-2-3 guide** (Data → Staff plan → Shipments); a step shows a tick once it
+  has produced something. Page heads (`AC.pageHead`) are one title and one sentence; longer
+  explanation goes in their closed "How this works" fold.
+- **Structure encodes state.** A table row can carry a left stripe (`stripe-binding`,
+  `stripe-neg`). The standing caveat is one quiet line (`.caveat`) on every page and must stay
+  visible. Do not add a device that says nothing.
+- **Chart colours are the one literal.** Plotly cannot read CSS variables, so `AC.colors` in
+  `common.js` is the only place chart colours are written (the Explorer heat-map uses it too).
+  Change it together with the token it mirrors.
 - **Build the shared pieces first.** Cards, buttons, badges and tables live in `style.css` and
   `common.js`; compose pages from them. Never style page markup ad hoc.
 - **Keep each script small.** A few hundred lines per file. Split by page rather than letting
@@ -304,9 +318,6 @@ Not defects, but they will surprise you.
   throughput moved 0.3%. It covers the objective delta only.
 - **Infeasible-baseline reason.** `baseline.py` names the specific constraint the observed
   allocation breaks rather than guessing at the cause.
-- **Light-mode accent text is darker than the accent fill.** `--c-accent` is `#8F5200` while
-  `--c-accent-fill` is `#E9A32E`; the bright amber is only ~4.3:1 on the light ground, which
-  fails AA for the 10px small-caps labels. Keep the two separate.
 - **No Vite, no shadcn/ui.** Evaluated and rejected — toolchain cost over polish gain for a
   four-page project whose marks live in the OR work.
 

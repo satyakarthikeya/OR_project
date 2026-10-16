@@ -7,7 +7,7 @@
  */
 (async function () {
   'use strict';
-  const { el, fmt, api, table, panel, kpi, callout, badge, spinner, utilBar, plot } = AC;
+  const { el, fmt, api, table, panel, kpi, callout, badge, spinner, utilBar, plot, ui } = AC;
 
   const DEFAULTS = () => ({
     filters: { terminals: [], cargo_types: [], priorities: [], weather: [], peak_hour: null },
@@ -15,16 +15,24 @@
     demand_scale: 1.0, demand_day: 'mean', objective: 'max_throughput',
     workforce_pool_factor: 1.0, equipment_pool_factor: 1.0, budget_enabled: false, budget_factor: 1.0,
   });
-  const OBJECTIVES = [['max_throughput', 'Max throughput'], ['min_cost', 'Min cost']];
-  const DEMAND_DAYS = [['mean', 'Average day'], ['p95', 'Busy day (p95)']];
-  const PEAK = [[null, 'All hours'], [1, 'Peak'], [0, 'Off-peak']];
-  // Mid-tone colours that read on both the light and the dark theme.
-  const C = { accent: '#2563EB', muted: '#98A2B3', good: '#12B76A', bad: '#F04438' };
+  const C = { accent: AC.colors.lead, muted: AC.colors.other, good: AC.colors.good, bad: AC.colors.bad };
+  // Keys that only change the solve, not the derived parameters, so they skip the refetch.
+  const SOLVE_ONLY = ['objective', 'workforce_pool_factor', 'equipment_pool_factor', 'budget_factor', 'budget_enabled'];
 
   const dataset = await AC.shell('lp', { needsDataset: true });
-  if (!dataset) return;
   const app = document.getElementById('app');
-  document.getElementById('caveat').append(AC.caveatBanner());
+  app.append(AC.pageHead({
+    kicker: 'Part 1 · Linear programming',
+    title: 'Workforce and equipment allocation',
+    lede: 'Decide how many workers and machines each terminal gets.',
+    about: [
+      el('p', {}, 'Pick a planning scenario, inspect the coefficients it produces, then solve. A linear programme ' +
+        'moves the observed workers and equipment between terminals to maximise throughput or minimise cost.'),
+      el('p', {}, "Every parameter is derived in closed form from the scenario's group means. Nothing is fitted. " +
+        'The result is scored against the observed allocation with the same objective function and the same resource totals.'),
+    ],
+  }), AC.caveatBanner());
+  if (!dataset) return;
 
   let c = DEFAULTS();
   let params = null;            // last /api/lp/parameters response
@@ -35,7 +43,8 @@
   let solving = false;
   let paramsSeq = 0;
   let timer = null;
-  const syncers = [];           // functions that refresh control labels / disabled states
+  let vocab = { terminals: [], cargo_types: [], priorities: [], weather: [] };
+  let w = {};                   // the live widgets, rebuilt on reset
 
   /* ------------------------------------------------------------- payloads */
 
@@ -50,78 +59,13 @@
     budget_factor: c.budget_enabled ? c.budget_factor : null,
   });
 
-  /* ------------------------------------------------------------- widgets */
-
-  function slider({ label, key, min, max, step, format, hint, enabledWhen }) {
-    const valueEl = el('span', { class: 'num' });
-    const input = el('input', { type: 'range', min, max, step, value: c[key], 'aria-label': label });
-    const refresh = () => {
-      input.value = c[key];
-      valueEl.textContent = format(c[key]);
-      input.disabled = enabledWhen ? !enabledWhen() : false;
-    };
-    input.addEventListener('input', () => { c[key] = parseFloat(input.value); refresh(); changed(key); });
-    syncers.push(refresh);
-    return el('div', { class: 'control' },
-      el('div', { class: 'top' }, el('label', {}, label), valueEl), input,
-      hint ? el('div', { class: 'hint' }, hint) : '');
-  }
-
-  function toggle({ label, key, hint }) {
-    const input = el('input', { type: 'checkbox' });
-    input.addEventListener('change', () => { c[key] = input.checked; syncAll(); changed(key); });
-    syncers.push(() => { input.checked = c[key]; });
-    return el('div', { class: 'control' },
-      el('label', { class: 'check' }, input, el('span', {}, label)),
-      hint ? el('div', { class: 'hint' }, hint) : '');
-  }
-
-  /** Segmented control over c[key] (or c.filters[key] when `holder` is given). */
-  function segmented({ label, options, get, set }) {
-    const buttons = options.map(([value, text]) => {
-      const b = el('button', { type: 'button' }, text);
-      b.addEventListener('click', () => { set(value); syncAll(); });
-      return [value, b];
-    });
-    syncers.push(() => buttons.forEach(([v, b]) => b.classList.toggle('on', v === get())));
-    return el('div', { class: 'control' },
-      el('div', { class: 'top' }, el('label', {}, label)),
-      el('div', { class: 'seg' }, buttons.map((p) => p[1])));
-  }
-
-  function chipSelect(label, filterKey, options, hint) {
-    const wrap = el('div', { class: 'chips' });
-    const chips = options.map((opt) => {
-      const chip = el('button', { type: 'button', class: 'chip' }, opt);
-      chip.addEventListener('click', () => {
-        const cur = c.filters[filterKey];
-        c.filters[filterKey] = cur.includes(opt) ? cur.filter((x) => x !== opt) : [...cur, opt];
-        syncAll(); changed('filters');
-      });
-      wrap.append(chip);
-      return [opt, chip];
-    });
-    syncers.push(() => chips.forEach(([opt, chip]) =>
-      chip.classList.toggle('on', c.filters[filterKey].includes(opt))));
-    return el('div', { class: 'control' },
-      el('div', { class: 'top' }, el('label', {}, label)),
-      options.length ? wrap : el('div', { class: 'hint' }, 'No categories found in this dataset.'),
-      hint ? el('div', { class: 'hint' }, hint) : '');
-  }
-
-  const syncAll = () => syncers.forEach((f) => f());
-
   /* ------------------------------------------------------- change handling */
 
-  /** Any control moved: refresh labels, re-derive parameters (debounced), flag stale results. */
+  /** Any control moved: re-derive parameters (debounced) and flag stale results. */
   function changed(key) {
-    syncAll();
+    renderExpanded();
     renderStale();
-    if (key === 'objective' || key === 'workforce_pool_factor' || key === 'equipment_pool_factor'
-        || key === 'budget_factor' || key === 'budget_enabled') {
-      renderParams();          // these only change how cached numbers are displayed
-      return;
-    }
+    if (SOLVE_ONLY.includes(key)) { renderParams(); return; }   // penalty M depends on the objective
     paramsLoading = true;
     renderParams();
     clearTimeout(timer);
@@ -141,115 +85,122 @@
     }
     paramsLoading = false;
     renderParams();
-    syncAll();
+    ['workers', 'equipment', 'budget'].forEach((k) => w[k] && w[k].refresh());
     solveBtn.disabled = !params || solving;
   }
 
-  /* ---------------------------------------------------------- control panel */
+  /* ---------------------------------------------------------- settings panel */
+
+  const pctAbs = (total, digits) => (v) =>
+    `${(v * 100).toFixed(0)}%${params ? ` · ${fmt.num(params[total] * v, digits)}` : ''}`;
+  const set = (key) => (v) => { c[key] = v; changed(key); };
+  const setFilter = (key) => (v) => { c.filters[key] = v; changed('filters'); };
 
   const recordsNote = el('div', { class: 'hint' }, 'Deriving...');
-  const resetBtn = el('button', { class: 'btn', type: 'button', onclick: () => {
-    c = DEFAULTS(); syncAll(); changed('filters');
-  } }, 'Reset');
+  const expandedNote = el('div', {});
+  const controlsHost = el('div', {}, spinner('Loading categories...'));
 
-  const controlsBody = el('div', {});
-  const controlsPanel = panel('Scenario', controlsBody, resetBtn);
-
-  function buildControls(vocab) {
-    controlsBody.replaceChildren(
-      el('div', { class: 'field-label', style: 'margin-bottom:8px' }, 'Slice'),
-      chipSelect('Terminals', 'terminals', vocab.terminals, 'None selected = all terminals'),
-      chipSelect('Cargo type', 'cargo_types', vocab.cargo_types),
-      chipSelect('Weather', 'weather', vocab.weather),
-      chipSelect('Priority', 'priorities', vocab.priorities),
-      segmented({ label: 'Hour of day', options: PEAK,
-                  get: () => c.filters.peak_hour,
-                  set: (v) => { c.filters.peak_hour = v; changed('filters'); } }),
-      recordsNote,
-
-      el('div', { class: 'field-label', style: 'margin:16px 0 8px' }, 'Assumptions'),
-      slider({ label: 'Labour share θ', key: 'labor_share', min: 0.05, max: 0.95, step: 0.05,
-               format: (v) => v.toFixed(2),
-               hint: 'Share of throughput attributed to workers. The single free assumption behind α and β.' }),
-      slider({ label: 'Cost labour share θ_c', key: 'cost_labor_share', min: 0.05, max: 0.95, step: 0.05,
-               format: (v) => v.toFixed(2),
-               hint: 'With θ_c = θ the two resources are equally cost-efficient inside a terminal; separate them to create a substitution trade-off.' }),
-      toggle({ label: 'Congestion multiplier γ', key: 'apply_congestion',
-               hint: 'Off, the terminals are near-identical and the allocation becomes a solver artefact. This switch exists to demonstrate that.' }),
-      slider({ label: 'Congestion exponent δ', key: 'congestion_delta', min: 0, max: 3, step: 0.25,
-               format: (v) => v.toFixed(2), enabledWhen: () => c.apply_congestion,
-               hint: 'Raises the weight on facility utilisation, widening the productivity spread between terminals.' }),
-      segmented({ label: 'Planning window', options: DEMAND_DAYS,
-                  get: () => c.demand_day, set: (v) => { c.demand_day = v; changed('demand_day'); } }),
-      el('div', { class: 'hint', style: 'margin:-8px 0 14px' },
-        'D_t is the tons arriving at a terminal in one window, divided by H - a level made into a rate, never a rescaled mean. ' +
-        'On an average day every terminal carries roughly 45% headroom; on a busy day demand runs past capability and the slack ' +
-        'variables switch on. That is where the LP earns its keep.'),
-      slider({ label: 'Demand stress ×', key: 'demand_scale', min: 0.5, max: 3, step: 0.1,
-               format: (v) => `${v.toFixed(1)}×`,
-               hint: 'Scales every D_t. Above roughly 1.5× the terminals cannot meet demand and the shortfall is reported as slack.' }),
-
-      el('div', { class: 'field-label', style: 'margin:16px 0 8px' }, 'Resources'),
-      segmented({ label: 'Objective', options: OBJECTIVES,
-                  get: () => c.objective, set: (v) => { c.objective = v; changed('objective'); } }),
-      slider({ label: 'Worker pool', key: 'workforce_pool_factor', min: 0.8, max: 1.2, step: 0.05,
-               format: (v) => `${(v * 100).toFixed(0)}%${params ? ` · ${fmt.num(params.workforce_total * v, 1)}` : ''}`,
-               hint: 'Relative to the total the terminals were observed to use. Above 100% is flagged as an expanded-resources scenario.' }),
-      slider({ label: 'Equipment pool', key: 'equipment_pool_factor', min: 0.8, max: 1.2, step: 0.05,
-               format: (v) => `${(v * 100).toFixed(0)}%${params ? ` · ${fmt.num(params.equipment_total * v, 1)}` : ''}` }),
-      toggle({ label: 'Budget cap', key: 'budget_enabled',
-               hint: 'Cap total operational cost as a multiple of the baseline cost.' }),
-      slider({ label: 'Budget', key: 'budget_factor', min: 0.5, max: 2, step: 0.05,
-               format: (v) => `${(v * 100).toFixed(0)}%${params ? ` · ${fmt.num(params.baseline_cost * v, 0)}` : ''}`,
-               enabledWhen: () => c.budget_enabled }),
-      expandedNote);
-    syncAll();
+  function renderExpanded() {
+    expandedNote.replaceChildren(c.workforce_pool_factor > 1 || c.equipment_pool_factor > 1
+      ? callout('warn', el('b', {}, 'Expanded resources. '),
+        'The pool is above what the terminals used, so part of any gain is bought with extra resources rather than earned by re-allocating.')
+      : '');
   }
 
-  const expandedNote = el('div', {});
-  syncers.push(() => {
-    expandedNote.replaceChildren(
-      (c.workforce_pool_factor > 1 || c.equipment_pool_factor > 1)
-        ? callout('warn', 'Expanded-resources scenario: part of any gain is bought with extra resources rather than earned by re-allocating.')
-        : '');
-  });
+  function buildControls() {
+    w = {
+      workers: ui.slider({ label: 'Workers available', min: 0.8, max: 1.2, step: 0.05, value: c.workforce_pool_factor,
+        format: pctAbs('workforce_total', 1), onInput: set('workforce_pool_factor'),
+        help: 'Relative to the total the terminals were observed to use (W). Above 100% is flagged as an expanded-resources scenario.' }),
+      equipment: ui.slider({ label: 'Equipment available', min: 0.8, max: 1.2, step: 0.05, value: c.equipment_pool_factor,
+        format: pctAbs('equipment_total', 1), onInput: set('equipment_pool_factor'),
+        help: 'Relative to the equipment units the terminals were observed to use (E).' }),
+      budget: ui.slider({ label: 'Budget', min: 0.5, max: 2, step: 0.05, value: c.budget_factor,
+        format: pctAbs('baseline_cost', 0), onInput: set('budget_factor') }),
+      delta: ui.slider({ label: 'Congestion exponent (δ)', min: 0, max: 3, step: 0.25, value: c.congestion_delta,
+        format: (v) => v.toFixed(2), onInput: set('congestion_delta'),
+        help: 'Raises the weight on facility utilisation, widening the productivity spread between terminals.' }),
+    };
+    w.budget.setDisabled(!c.budget_enabled);
+    w.delta.setDisabled(!c.apply_congestion);
 
-  /* -------------------------------------------------------- derived params */
+    controlsHost.replaceChildren(
+      ui.segmented({ label: 'Goal', options: [['max_throughput', 'Max throughput'], ['min_cost', 'Min cost']],
+        value: c.objective, onChange: set('objective'),
+        help: 'Max throughput: move resources to where they produce most. Min cost: meet demand as cheaply as possible.' }),
+      el('div', { class: 'section-title' }, 'Resources'),
+      w.workers, w.equipment,
+      ui.group(ui.toggle({ label: 'Cap the budget', checked: c.budget_enabled,
+        help: 'Cap total operational cost as a multiple of the baseline cost.',
+        onChange: (v) => { c.budget_enabled = v; w.budget.setDisabled(!v); changed('budget_enabled'); } }), w.budget),
+      expandedNote,
+      AC.fold('Demand & assumptions', [
+        ui.segmented({ label: 'Planning window', options: [['mean', 'Average day'], ['p95', 'Busy day (p95)']],
+          value: c.demand_day, onChange: set('demand_day'),
+          help: 'Demand D_t is the tons arriving at a terminal in one window, divided by the horizon H. On an average day every ' +
+            'terminal has roughly 45% headroom; on a busy day demand runs past capability and the unmet-demand slack switches on.' }),
+        ui.slider({ label: 'Demand stress', min: 0.5, max: 3, step: 0.1, value: c.demand_scale,
+          format: (v) => `${v.toFixed(1)}×`, onInput: set('demand_scale'),
+          help: 'Scales every D_t. Above roughly 1.5× the terminals cannot meet demand and the shortfall is reported as slack.' }),
+        ui.slider({ label: 'Labour share (θ)', min: 0.05, max: 0.95, step: 0.05, value: c.labor_share,
+          format: (v) => v.toFixed(2), onInput: set('labor_share'),
+          help: 'Share of throughput attributed to workers. The single free assumption behind the productivities α and β.' }),
+        ui.slider({ label: 'Cost labour share (θ_c)', min: 0.05, max: 0.95, step: 0.05, value: c.cost_labor_share,
+          format: (v) => v.toFixed(2), onInput: set('cost_labor_share'),
+          help: 'With θ_c = θ the two resources are equally cost-efficient inside a terminal; separate them to create a substitution trade-off.' }),
+        ui.group(ui.toggle({ label: 'Congestion multiplier (γ)', checked: c.apply_congestion,
+          help: 'Off, the terminals are near-identical and the allocation becomes a solver artefact. This switch exists to demonstrate that.',
+          onChange: (v) => { c.apply_congestion = v; w.delta.setDisabled(!v); changed('apply_congestion'); } }), w.delta),
+      ], { aside: 'θ, γ, demand' }),
+      AC.fold('Filter the data', [
+        ui.chips({ label: 'Terminals', options: vocab.terminals, selected: c.filters.terminals,
+          onChange: setFilter('terminals'), emptyText: 'None selected = all terminals' }),
+        ui.chips({ label: 'Cargo type', options: vocab.cargo_types, selected: c.filters.cargo_types, onChange: setFilter('cargo_types') }),
+        ui.chips({ label: 'Weather', options: vocab.weather, selected: c.filters.weather, onChange: setFilter('weather') }),
+        ui.chips({ label: 'Priority', options: vocab.priorities, selected: c.filters.priorities, onChange: setFilter('priorities') }),
+        ui.segmented({ label: 'Hour of day', options: [[null, 'All hours'], [1, 'Peak'], [0, 'Off-peak']],
+          value: c.filters.peak_hour, onChange: setFilter('peak_hour') }),
+        recordsNote,
+      ], { aside: 'terminals, cargo, weather' }));
+    renderExpanded();
+  }
+
+  /* -------------------------------------------------------- model inputs */
 
   const paramsHost = el('div', {});
   let showDerivation = false;
+  let paramsOpen = true;       // open until the first solve, then tucked away at the bottom
 
   function renderParams() {
     if (params) {
-      recordsNote.textContent =
-        `${fmt.int(params.n_records)} records in this slice, across ${params.terminals.length} terminal(s).`;
+      recordsNote.textContent = `${fmt.int(params.n_records)} records in this slice, across ${params.terminals.length} terminal(s).`;
     }
     if (paramsError) {
       paramsHost.replaceChildren(callout('bad', el('b', {}, 'Could not derive parameters. '), paramsError.message));
       return;
     }
     if (!params) {
-      paramsHost.replaceChildren(panel('Derived parameters', spinner('Deriving parameters...')));
+      paramsHost.replaceChildren(AC.fold('Model inputs', spinner('Deriving parameters...'), { open: true, big: true }));
       return;
     }
     const congestionOn = params.assumptions.congestion_applied;
     const derivBtn = el('button', { class: 'btn', type: 'button', onclick: () => {
       showDerivation = !showDerivation; renderParams();
     } }, showDerivation ? 'Hide derivation' : 'How these were derived');
-    const right = el('div', { class: 'row' }, paramsLoading ? el('span', { class: 'faint' }, 'updating...') : '', derivBtn);
 
     const rangeText = (lo, hi) => `${fmt.num(lo, 0)}–${fmt.num(hi, 0)}`;
+    const n = (k, d) => (r) => fmt.num(r[k], d);
     const tbl = table({
       columns: [
         { key: 'terminal', label: 'Terminal' },
-        { label: 'α per worker', align: 'r', sym: true, render: (r) => fmt.num(r.alpha, 3) },
-        { label: 'β per unit', align: 'r', sym: true, render: (r) => fmt.num(r.beta, 3) },
+        { label: 'α per worker', align: 'r', sym: true, render: n('alpha', 3) },
+        { label: 'β per unit', align: 'r', sym: true, render: n('beta', 3) },
         { label: 'γ', align: 'r', sym: true,
           render: (r) => el('span', { class: congestionOn ? '' : 'faint' }, fmt.num(r.congestion, 3)) },
-        { label: 'cost/worker', align: 'r', sym: true, render: (r) => fmt.num(r.cost_worker, 1) },
-        { label: 'cost/unit', align: 'r', sym: true, render: (r) => fmt.num(r.cost_equipment, 1) },
-        { label: 'demand D', align: 'r', sym: true, render: (r) => fmt.num(r.demand, 1) },
-        { label: 'capacity', align: 'r', sym: true, render: (r) => fmt.num(r.capacity, 1) },
+        { label: 'cost/worker', align: 'r', sym: true, render: n('cost_worker', 1) },
+        { label: 'cost/unit', align: 'r', sym: true, render: n('cost_equipment', 1) },
+        { label: 'demand D', align: 'r', sym: true, render: n('demand', 1) },
+        { label: 'capacity', align: 'r', sym: true, render: n('capacity', 1) },
         { label: 'w range', align: 'r', sym: true, render: (r) => rangeText(r.workforce_min, r.workforce_max) },
         { label: 'e range', align: 'r', sym: true, render: (r) => rangeText(r.equipment_min, r.equipment_max) },
       ],
@@ -258,11 +209,17 @@
     tbl.classList.toggle('dim', paramsLoading);
 
     const kv = (pairs) => el('dl', { class: 'kv kv-3' }, pairs.map(([k, v]) => [el('dt', {}, k), el('dd', { class: 'num' }, v)]));
-    const penalty = params.unmet_penalty[c.objective];
+    const gap = (node) => el('div', { style: 'margin-top:16px' }, node);
     const body = el('div', {},
-      el('p', { class: 'muted' }, "Computed from this scenario's group means, before any optimisation runs."),
+      el('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:12px' },
+        el('span', { class: 'muted' }, "Computed from this scenario's group means, before any optimisation runs."),
+        el('span', { class: 'row' }, paramsLoading ? el('span', { class: 'faint' }, 'updating...') : '', derivBtn)),
+      congestionOn ? '' : callout('warn', el('b', {}, 'Congestion multiplier is off. '),
+        'With γ = 1 the terminals are interchangeable, so the allocation the LP returns is an artefact of solver scan order, not a decision.'),
+      params.warnings.length
+        ? callout('warn', el('b', {}, 'Scenario warnings'), el('ul', {}, params.warnings.map((x) => el('li', {}, x)))) : '',
       tbl,
-      el('div', { style: 'margin-top:14px' }, kv([
+      gap(kv([
         ['Worker pool W', fmt.num(params.workforce_total, 1)],
         ['Equipment pool E', fmt.num(params.equipment_total, 1)],
         ['Records in slice', fmt.int(params.n_records)],
@@ -270,22 +227,17 @@
         ['Baseline cost', fmt.num(params.baseline_cost, 0)],
         ['Baseline unmet demand', fmt.num(params.baseline_unmet_demand, 2)],
         ['Planning horizon H', `${fmt.num(params.assumptions.horizon_hours, 0)} h`],
-        ['Unmet-demand penalty M', fmt.num(penalty, 1)],
+        ['Unmet-demand penalty M', fmt.num(params.unmet_penalty[c.objective], 1)],
         ['Capacity percentile', fmt.pct(params.assumptions.capacity_percentile * 100, 0)],
       ])),
-      congestionOn ? '' : el('div', { style: 'margin-top:14px' },
-        callout('warn', el('b', {}, 'Congestion multiplier is off. '),
-          'With γ = 1 the terminals are statistically interchangeable, so the LP has no reason to prefer any of them ' +
-          'and the allocation it returns is an artefact of solver scan order rather than a decision.')),
-      params.warnings.length ? el('div', { style: 'margin-top:14px' },
-        callout('warn', el('b', {}, 'Scenario warnings'), el('ul', {}, params.warnings.map((w) => el('li', {}, w))))) : '',
-      showDerivation ? el('div', { style: 'margin-top:14px' },
-        el('div', { class: 'field-label' }, 'Derivation'),
-        params.derivation.map((n) => el('div', { class: 'deriv' },
-          el('div', {}, el('b', { class: 'num' }, n.symbol), ' ', n.name),
-          el('code', {}, n.formula),
-          el('p', { class: 'muted' }, n.explanation)))) : '');
-    paramsHost.replaceChildren(panel('Derived parameters', body, right));
+      showDerivation ? gap([el('div', { class: 'field-label' }, 'Derivation'),
+        params.derivation.map((d) => el('div', { class: 'deriv' },
+          el('div', {}, el('b', { class: 'num' }, d.symbol), ' ', d.name),
+          el('code', {}, d.formula),
+          el('p', { class: 'muted' }, d.explanation)))]) : '');
+    paramsHost.replaceChildren(AC.fold('Model inputs', body, { open: paramsOpen, big: true,
+      aside: `${params.terminals.length} terminals · ${fmt.int(params.n_records)} records`,
+      onToggle: (o) => { paramsOpen = o; } }));
   }
 
   /* ---------------------------------------------------------------- solve */
@@ -297,28 +249,29 @@
 
   function renderStale() {
     const stale = solveResult && solvedSig !== null && solvedSig !== JSON.stringify(solvePayload());
-    staleHost.replaceChildren(stale ? callout('warn', el('b', {}, 'Controls changed since this solve. '),
-      'The results below were produced with the previous settings. ',
-      el('button', { class: 'btn', type: 'button', disabled: solving, onclick: () => runSolve() },
-        'Re-solve with current settings')) : '');
+    staleHost.replaceChildren(stale ? callout('warn', el('b', {}, 'Settings changed since this solve. '),
+      'The results below use the previous settings. ',
+      el('button', { class: 'btn', type: 'button', disabled: solving, onclick: () => runSolve() }, 'Re-solve')) : '');
   }
 
   function renderEmpty() {
-    resultsHost.replaceChildren(el('div', { class: 'empty' },
-      el('b', {}, 'No solve yet'), el('p', {},
-        'The parameters above are already derived for this scenario. Solving runs CBC once and compares the ' +
-        'result against the observed allocation under the same objective function.')));
+    resultsHost.replaceChildren(el('div', { class: 'empty', style: 'margin-bottom:24px' },
+      el('b', {}, 'Ready to solve'), el('p', {},
+        'Solving gives a worker and equipment plan for each terminal, and compares it with today\'s allocation. ' +
+        'The inputs the model will use are below.')));
   }
 
   async function runSolve() {
     if (solving || !params) return;
     const payload = solvePayload();
     const sig = JSON.stringify(payload);
+    const solvedParams = params;
     solving = true;
     solveBtn.disabled = true;
     solveBtn.replaceChildren(spinner('Solving...'));
     staleHost.replaceChildren();
     resultsHost.replaceChildren(panel('Result', spinner('Running the solver...')));
+    paramsOpen = false; paramsHost.style.order = '3'; renderParams();
     let result;
     try {
       result = await api.lpSolve(payload);
@@ -337,15 +290,17 @@
       const workforce = {};
       result.allocation.forEach((r) => { workforce[r.terminal] = r.optimized_workforce; });
       AC.handoff.save(dataset.dataset_id, workforce, result.objective);
+      AC.markStepDone('lp');
     } else {
       AC.handoff.clear();
+      AC.markStepDone('lp', false);
     }
 
     const sensHost = el('div', {});
-    renderResults(result, sensHost);
+    renderResults(result, sensHost, payload, solvedParams);
     renderStale();
     if (result.status === 'Optimal') {
-      sensHost.replaceChildren(panel('Sensitivity - objective against the worker pool', spinner('Sweeping the worker pool...')));
+      sensHost.replaceChildren(panel('Sensitivity to the worker pool', spinner('Sweeping the worker pool...')));
       try {
         const sweep = await api.lpSensitivity({ ...payload, points: 9 });
         if (solveResult === result) renderSensitivity(sensHost, sweep, result);
@@ -358,6 +313,7 @@
   /* -------------------------------------------------------------- results */
 
   const metricOf = (cmp, key) => cmp.metrics.find((m) => m.key === key) || cmp.headline;
+  const warnList = (items) => items.length ? callout('warn', el('ul', {}, items.map((x) => el('li', {}, x)))) : '';
 
   function deltaCell(value, percent, better, digits) {
     const neutral = better === 'neutral' || Math.abs(value) < 1e-9;
@@ -367,74 +323,99 @@
       percent != null ? el('small', {}, ` (${fmt.signed(percent, 1)}%)`) : '');
   }
 
-  function solveStatusBox(r) {
-    const ok = r.status === 'Optimal';
-    return callout(ok ? 'good' : (r.status === 'Infeasible' || r.status === 'Unbounded') ? 'bad' : 'warn',
-      el('b', {}, ok ? 'Solved to optimality' : `Solver status: ${r.status}`),
-      el('p', {}, r.message || ''),
-      r.suggestions && r.suggestions.length
-        ? el('ul', {}, r.suggestions.map((s) => el('li', {}, s))) : '',
-      ok ? el('div', { class: 'num muted' }, `CBC · ${fmt.num(r.solve_seconds, 3)} s`) : '');
+  /** One plain sentence: throughput or cost and unmet demand, never the objective %. */
+  function headlineFor(r, payload) {
+    const cmp = r.comparison;
+    const thr = metricOf(cmp, 'total_throughput');
+    const cost = metricOf(cmp, 'total_cost');
+    const unmet = metricOf(cmp, 'total_unmet_demand');
+    const b = (t) => el('b', {}, t);
+    const workers = fmt.num(r.resources.workforce_available, 0);
+    const equip = fmt.num(r.resources.equipment_available, 0);
+    const samePools = payload.workforce_pool_factor === 1 && payload.equipment_pool_factor === 1;
+    // Never say "the same workers" when the pools were scaled: that gain is partly bought.
+    const lead = samePools ? ['re-allocating the same ', b(`${workers} workers`)]
+      : [`with ${r.expanded_resources ? 'expanded' : 'reduced'} resources (`, b(`${workers} workers`),
+        `, ${equip} equipment units), the plan`];
+    const move = (m, noun, up, down, digits, unit) => {
+      if (Math.abs(m.delta) < 1e-6) return [` keeps ${noun} at `, b(fmt.num(m.optimized, digits)), unit];
+      return [` ${m.delta > 0 ? up : down} ${noun} from ${fmt.num(m.baseline, digits)} to `, b(fmt.num(m.optimized, digits)),
+        unit, m.percent_delta != null ? ` (${fmt.signed(m.percent_delta, 1)}%)` : ''];
+    };
+    const unmetPart = unmet.optimized <= 0.001 ? ', with no unmet demand'
+      : [', leaving ', b(fmt.num(unmet.optimized, 1)), ` ${unmet.unit} of demand unmet (observed ${fmt.num(unmet.baseline, 1)})`];
+    if (r.objective === 'min_cost') {
+      const thrFalls = thr.baseline > 0 && thr.delta / thr.baseline < -0.01;
+      return AC.headline('In the model, ', lead, move(cost, 'cost', 'raises', 'cuts', 0, ''), unmetPart,
+        thrFalls ? [', while throughput falls from ', fmt.num(thr.baseline, 1), ' to ', b(fmt.num(thr.optimized, 1)),
+          ` ${thr.unit} because the cheapest plan stops at the demand line`] : '', '.');
+    }
+    return AC.headline('In the model, ', lead, move(thr, 'throughput', 'lifts', 'lowers', 1, ` ${thr.unit}`), unmetPart, '.');
   }
 
-  function renderResults(r, sensHost) {
+  function statusLine(r) {
+    return el('div', { class: 'row', style: 'margin-bottom:16px' },
+      badge('Optimal', 'pos'), el('span', { class: 'muted num' }, `CBC · ${fmt.num(r.solve_seconds, 3)} s`),
+      r.expanded_resources ? badge('Expanded resources', 'accent') : badge('Same resource pools'),
+      el('span', { class: 'faint' }, `${r.objective_label} · allocation: ${r.allocation_source}`));
+  }
+
+  function renderResults(r, sensHost, payload, p) {
     if (r.status !== 'Optimal') {
       resultsHost.replaceChildren(panel('Result', [
-        solveStatusBox(r),
-        r.warnings && r.warnings.length ? callout('warn', el('ul', {}, r.warnings.map((w) => el('li', {}, w)))) : '',
+        callout(r.status === 'Infeasible' || r.status === 'Unbounded' ? 'bad' : 'warn',
+          el('b', {}, `The solver could not find a plan (status: ${r.status}).`), el('p', {}, r.message || ''),
+          r.suggestions && r.suggestions.length
+            ? [el('div', {}, 'Things to try:'), el('ul', {}, r.suggestions.map((s) => el('li', {}, s)))] : ''),
+        warnList(r.warnings || []),
       ]));
       return;
     }
     const cmp = r.comparison;
-    const h = cmp.headline;
     const thr = metricOf(cmp, 'total_throughput');
+    const cost = metricOf(cmp, 'total_cost');
     const unmet = metricOf(cmp, 'total_unmet_demand');
-    const unmetK = kpi('Unmet demand', fmt.num(unmet.optimized, 2), `baseline ${fmt.num(unmet.baseline, 2)}`);
+    const unmetK = kpi('Unmet demand', fmt.num(unmet.optimized, 2), `observed ${fmt.num(unmet.baseline, 2)}`);
     unmetK.querySelector('.value').classList.add(unmet.optimized > 0.001 ? 'neg' : 'pos');
-    const optK = kpi('Objective — optimised', fmt.num(h.optimized, 1), h.unit);
-    if (h.improved) optK.querySelector('.value').classList.add('pos');
+    // Warnings from the parameter step must still be seen once Model inputs is folded away.
+    const extra = (p.warnings || []).filter((x) => !(r.warnings || []).includes(x));
 
-    const handoffNote = callout('good', el('b', {}, 'Allocation saved for Part 2. '),
-      'These worker numbers are now available in ', el('a', { href: 'ip.html' }, 'Part 2 · IP'),
-      ' - shipment selection will spend this plan instead of the observed one.');
-
-    const outcome = panel('Outcome', [
-      solveStatusBox(r),
-      el('div', { class: 'row', style: 'margin-bottom:12px' },
-        el('span', { class: 'muted' }, r.objective_label), ' ',
-        r.expanded_resources ? badge('Expanded resources', 'accent') : badge('Same resource pools'),
-        ' ', el('span', { class: 'faint' }, `allocation: ${r.allocation_source}`)),
-      el('div', { class: 'grid grid-4' },
-        kpi('Objective — baseline', fmt.num(h.baseline, 1), h.unit), optK,
-        kpi('Total throughput', fmt.num(thr.optimized, 1), `baseline ${fmt.num(thr.baseline, 1)}`), unmetK),
-      el('div', { style: 'margin-top:14px' }, table({
-        columns: [
-          { key: 'label', label: 'Metric' },
-          { label: 'Observed', align: 'r', render: (m) => fmt.num(m.baseline, 2) },
-          { label: 'Optimised', align: 'r', render: (m) => fmt.num(m.optimized, 2) },
-          { label: 'Change', align: 'r', render: (m) => deltaCell(m.delta, m.percent_delta, m.better) },
-        ],
-        rows: [h, ...cmp.metrics],
-      })),
-      cmp.notes.map((n) => callout('warn', n)),
-      r.warnings && r.warnings.length ? callout('warn', el('ul', {}, r.warnings.map((w) => el('li', {}, w)))) : '',
-      el('p', { class: 'muted', style: 'margin-top:10px' },
-        'Both columns are scored by the same objective function at the same resource totals - the observed allocation ' +
-        'is never compared against raw recorded KPIs.'),
+    const outcome = panel('Result', [
+      headlineFor(r, payload),
+      statusLine(r),
+      AC.kpis(kpi('Throughput', fmt.num(thr.optimized, 1), `observed ${fmt.num(thr.baseline, 1)}`),
+        kpi('Operational cost', fmt.num(cost.optimized, 0), `observed ${fmt.num(cost.baseline, 0)}`), unmetK),
+      payload.apply_congestion ? '' : callout('warn', el('b', {}, 'Congestion multiplier is off. '),
+        'The terminals are interchangeable in this run, so this allocation is a solver artefact rather than a decision.'),
+      cmp.notes.map((x) => callout('warn', x)),
+      warnList([...(r.warnings || []), ...extra]),
+      AC.fold('Observed vs optimised, every metric', [
+        table({
+          columns: [
+            { key: 'label', label: 'Metric' },
+            { label: 'Observed', align: 'r', render: (m) => fmt.num(m.baseline, 2) },
+            { label: 'Optimised', align: 'r', render: (m) => fmt.num(m.optimized, 2) },
+            { label: 'Change', align: 'r', render: (m) => deltaCell(m.delta, m.percent_delta, m.better) },
+          ],
+          rows: [cmp.headline, ...cmp.metrics],
+        }),
+        el('p', { class: 'hint', style: 'margin-top:8px' },
+          'Both columns are scored by the same objective function at the same resource totals; the observed allocation ' +
+          'is never compared against raw recorded KPIs. The objective row includes the unmet-demand penalty.'),
+      ]),
     ]);
 
-    const allocNode = el('div', { class: 'plot', role: 'img',
-      'aria-label': 'Baseline versus optimised workers and equipment per terminal' });
-    const thrNode = el('div', { class: 'plot', role: 'img',
-      'aria-label': 'Throughput against demand and capacity per terminal' });
+    const nextStep = callout('good', el('div', { class: 'row', style: 'justify-content:space-between' },
+      el('span', {}, el('b', {}, 'Saved for step 3. '), 'Choosing shipments will use this worker plan instead of the observed one.'),
+      el('a', { class: 'btn', href: 'ip.html' }, 'Next: choose shipments →')));
+
+    const allocNode = el('div', { class: 'plot', role: 'img', 'aria-label': 'Observed versus optimised workers and equipment per terminal' });
+    const thrNode = el('div', { class: 'plot', role: 'img', 'aria-label': 'Throughput against demand and capacity per terminal' });
     const charts = el('div', { class: 'grid grid-2' },
-      panel('Allocation', [el('p', { class: 'muted' }, 'Observed mean versus optimised, per terminal.'), allocNode,
-        el('p', { class: 'hint muted' }, 'Bars are workers (left axis); markers are equipment units (right axis). The two resources ' +
-          'live on different scales, so plotting them on one axis would hide the equipment movement entirely.')]),
-      panel('Throughput against demand and capacity', [
-        el('p', { class: 'muted' }, 'Where each terminal lands between its demand floor and its physical ceiling.'), thrNode,
-        el('p', { class: 'hint muted' }, "A bar below its demand marker is unmet demand, carried by the soft constraint's slack variable " +
-          'rather than making the model infeasible.')]));
+      panel('Allocation', [allocNode, el('p', { class: 'hint' },
+        'Bars are workers (left axis), markers are equipment (right axis). One axis would hide the equipment movement.')]),
+      panel('Throughput, demand and capacity', [thrNode, el('p', { class: 'hint' },
+        'A bar below its demand marker is unmet demand, carried by a slack variable instead of making the model infeasible.')]));
 
     const plan = panel('Per-terminal plan', [
       el('p', { class: 'muted' }, 'The allocation to hand to operations, with the change from today.'),
@@ -458,29 +439,26 @@
     ]);
 
     const inflated = r.duals_penalty_inflated;
+    const binding = r.duals.filter((d) => d.binding);
+    const slack = r.duals.filter((d) => !d.binding);
+    const dualCols = [
+      { key: 'name', label: 'Constraint', render: (d) => el('span', { class: 'num' }, d.name) },
+      { label: 'State', render: (d) => el('span', { class: `num ${d.binding ? '' : 'faint'}` }, d.binding ? 'binding' : 'slack') },
+      { label: 'RHS', align: 'r', render: (d) => el('span', { style: 'white-space:nowrap' }, `${d.sense} ${fmt.num(d.rhs, 1)}`) },
+      { label: 'Slack', align: 'r', render: (d) => fmt.num(d.slack, 2) },
+      { label: 'Shadow price', align: 'r', render: (d) => el('span', { class: d.binding ? '' : 'faint' }, fmt.num(d.shadow_price, 4)) },
+    ];
     const dualsPanel = panel('Binding constraints and shadow prices', [
-      el('p', { class: 'muted' }, 'What is actually limiting the plan, and what a unit of relief is worth.'),
-      // The headline research question is "what is one more worker worth?" and the dual is the
-      // answer, so where it came from is on screen next to it rather than in a footnote.
-      callout(inflated ? 'warn' : '', r.duals_note || ''),
-      el('div', { class: 'row', style: 'margin-bottom:10px' },
+      el('p', { class: 'muted' }, 'What is limiting the plan, and what one more unit of each resource is worth.'),
+      // "What is one more worker worth?" is answered by the dual, so its source sits next to it.
+      r.duals_note ? callout(inflated ? 'warn' : '', r.duals_note) : '',
+      el('div', { class: 'row', style: 'margin-bottom:12px' },
         el('span', { class: 'field-label' }, 'allocation source'), el('span', { class: 'num' }, r.allocation_source),
         el('span', { class: 'field-label' }, 'duals source'), el('span', { class: 'num' }, r.duals_source)),
-      table({
-        columns: [
-          { key: 'name', label: 'Constraint', render: (d) => el('span', { class: 'num' }, d.name) },
-          { label: 'State', render: (d) => el('span', { class: `num ${d.binding ? '' : 'faint'}` }, d.binding ? 'binding' : 'slack') },
-          { label: 'RHS', align: 'r', render: (d) => `${d.sense} ${fmt.num(d.rhs, 1)}` },
-          { label: 'Slack', align: 'r', render: (d) => fmt.num(d.slack, 2) },
-          { label: 'Shadow price', align: 'r',
-            render: (d) => el('span', { class: d.binding ? '' : 'faint' }, fmt.num(d.shadow_price, 4)) },
-        ],
-        rows: r.duals,
-        rowClass: (d) => (d.binding ? 'stripe-binding' : ''),
-      }),
-      el('div', { class: 'field-label', style: 'margin-top:14px' }, 'Reading the binding constraints'),
-      el('ul', { class: 'readings' }, r.duals.filter((d) => d.binding).map((d) =>
-        el('li', {}, el('span', { class: 'num' }, d.name), ' — ', d.interpretation))),
+      binding.length ? table({ columns: dualCols, rows: binding, rowClass: () => 'stripe-binding' }) : '',
+      slack.length ? AC.fold(`${slack.length} slack constraints`, table({ columns: dualCols, rows: slack })) : '',
+      binding.length ? [el('div', { class: 'field-label', style: 'margin-top:16px' }, 'Reading the binding constraints'),
+        el('ul', { class: 'readings' }, binding.map((d) => el('li', {}, el('span', { class: 'num' }, d.name), ' — ', d.interpretation)))] : '',
     ], inflated ? badge('Penalty-stripped', 'accent') : badge('Relaxation duals'));
 
     const res = r.resources;
@@ -500,41 +478,31 @@
         el('dt', {}, 'Binding constraints'), el('dd', { class: 'num' }, r.binding_constraints.length)),
     ]);
 
-    resultsHost.replaceChildren(outcome, handoffNote, charts, plan,
+    resultsHost.replaceChildren(outcome, nextStep, plan, charts,
       el('div', { class: 'split-wide' }, dualsPanel, resourcePanel), sensHost);
 
-    // Charts need to be in the document before Plotly measures them.
     const labels = r.allocation.map((a) => a.terminal);
     const col = (k) => r.allocation.map((a) => a[k]);
+    const bar = (name, k, color, group, unit) => ({ type: 'bar', name, x: labels, y: col(k), marker: { color },
+      offsetgroup: group, hovertemplate: `%{x}: %{y:.1f}${unit}<extra>${name}</extra>` });
+    const mark = (name, k, marker, extra) => ({ type: 'scatter', mode: 'markers', name, x: labels, y: col(k), marker,
+      hovertemplate: `%{x}: %{y:.1f}<extra>${name}</extra>`, ...extra });
     plot(allocNode, [
-      { type: 'bar', name: 'Workers — observed', x: labels, y: col('baseline_workforce'),
-        marker: { color: C.muted }, offsetgroup: 1, hovertemplate: '%{x}: %{y:.1f} workers<extra>Observed</extra>' },
-      { type: 'bar', name: 'Workers — optimised', x: labels, y: col('optimized_workforce'),
-        marker: { color: C.accent }, offsetgroup: 2, hovertemplate: '%{x}: %{y:.1f} workers<extra>Optimised</extra>' },
-      { type: 'scatter', mode: 'markers', name: 'Equipment — observed', x: labels, y: col('baseline_equipment'), yaxis: 'y2',
-        marker: { color: C.muted, size: 9, symbol: 'circle-open', line: { width: 2 } },
-        hovertemplate: '%{x}: %{y:.1f} units<extra>Observed</extra>' },
-      { type: 'scatter', mode: 'markers', name: 'Equipment — optimised', x: labels, y: col('optimized_equipment'), yaxis: 'y2',
-        marker: { color: C.accent, size: 9, symbol: 'diamond' },
-        hovertemplate: '%{x}: %{y:.1f} units<extra>Optimised</extra>' },
+      bar('Workers — observed', 'baseline_workforce', C.muted, 1, ' workers'),
+      bar('Workers — optimised', 'optimized_workforce', C.accent, 2, ' workers'),
+      mark('Equipment — observed', 'baseline_equipment', { color: C.muted, size: 9, symbol: 'circle-open', line: { width: 2 } }, { yaxis: 'y2' }),
+      mark('Equipment — optimised', 'optimized_equipment', { color: C.accent, size: 9, symbol: 'diamond' }, { yaxis: 'y2' }),
     ], {
       barmode: 'group', bargap: 0.4,
       yaxis: { title: { text: 'workers', font: { size: 11 } }, rangemode: 'tozero' },
       yaxis2: { title: { text: 'equipment', font: { size: 11 } }, overlaying: 'y', side: 'right',
                 rangemode: 'tozero', showgrid: false, automargin: true },
     }, 300);
-
     plot(thrNode, [
-      { type: 'bar', name: 'Throughput — observed', x: labels, y: col('baseline_throughput'),
-        marker: { color: C.muted }, offsetgroup: 1, hovertemplate: '%{x}: %{y:.1f}<extra>Observed</extra>' },
-      { type: 'bar', name: 'Throughput — optimised', x: labels, y: col('optimized_throughput'),
-        marker: { color: C.accent }, offsetgroup: 2, hovertemplate: '%{x}: %{y:.1f}<extra>Optimised</extra>' },
-      { type: 'scatter', mode: 'markers', name: 'Demand D', x: labels, y: col('demand'),
-        marker: { color: C.good, size: 11, symbol: 'line-ew-open', line: { width: 3 } },
-        hovertemplate: '%{x}: %{y:.1f}<extra>Demand</extra>' },
-      { type: 'scatter', mode: 'markers', name: 'Capacity ceiling', x: labels, y: col('capacity'),
-        marker: { color: C.bad, size: 11, symbol: 'line-ew-open', line: { width: 3 } },
-        hovertemplate: '%{x}: %{y:.1f}<extra>Capacity</extra>' },
+      bar('Throughput — observed', 'baseline_throughput', C.muted, 1, ''),
+      bar('Throughput — optimised', 'optimized_throughput', C.accent, 2, ''),
+      mark('Demand D', 'demand', { color: C.good, size: 11, symbol: 'line-ew-open', line: { width: 3 } }),
+      mark('Capacity ceiling', 'capacity', { color: C.bad, size: 11, symbol: 'line-ew-open', line: { width: 3 } }),
     ], {
       barmode: 'group', bargap: 0.4,
       yaxis: { title: { text: 'throughput units', font: { size: 11 } }, rangemode: 'tozero' },
@@ -542,10 +510,10 @@
   }
 
   function renderSensitivity(host, sweep, r) {
+    const title = 'Sensitivity to the worker pool';
     const pts = sweep.points.filter((p) => p.objective_value !== null);
     if (!pts.length) {
-      host.replaceChildren(panel('Sensitivity - objective against the worker pool',
-        callout('warn', 'No feasible points in the sweep. ', sweep.note || '')));
+      host.replaceChildren(panel(title, callout('warn', 'No feasible points in the sweep. ', sweep.note || '')));
       return;
     }
     const node = el('div', { class: 'plot', role: 'img', 'aria-label': 'Objective value as the worker pool is swept' });
@@ -555,7 +523,7 @@
     const slope = pts.length < 2 || span === 0 ? 0 : (last.objective_value - first.objective_value) / span;
     const vals = pts.map((p) => p.objective_value);
     const stat = (label, value) => el('div', {}, el('div', { class: 'field-label' }, label), el('div', { class: 'num' }, value));
-    host.replaceChildren(panel('Sensitivity - objective against the worker pool', [
+    host.replaceChildren(panel(title, [
       el('p', { class: 'muted' }, sweep.note), node,
       el('div', { class: 'grid grid-3', style: 'margin-top:12px' },
         stat('Swept', `${fmt.num(first.workforce_total, 1)} → ${fmt.num(last.workforce_total, 1)} workers`),
@@ -572,16 +540,19 @@
         hovertemplate: 'current pool %{x:.1f}<extra></extra>' },
     ], {
       xaxis: { title: { text: 'worker pool W', font: { size: 11 } } },
-      yaxis: { title: { text: r.comparison.headline.unit, font: { size: 11 } } },
+      yaxis: { title: { text: `objective (${r.comparison.headline.unit})`, font: { size: 11 } } },
     }, 300);
   }
 
   /* ----------------------------------------------------------------- boot */
 
-  app.append(el('div', { class: 'split' },
-    el('div', { class: 'sticky-col' }, controlsPanel, solveBtn),
-    el('div', { style: 'min-width:0' }, paramsHost, staleHost, resultsHost)));
-  controlsBody.append(spinner('Loading categories...'));
+  const resetBtn = el('button', { class: 'btn btn-quiet', type: 'button', onclick: () => {
+    c = DEFAULTS(); buildControls(); changed('filters');
+  } }, 'Reset');
+  const wb = AC.workbench({ title: 'Settings', controls: controlsHost, reset: resetBtn,
+    actions: [solveBtn, el('div', { class: 'hint' }, 'Runs CBC once, about a second.')] });
+  wb.results.append(staleHost, resultsHost, paramsHost);
+  app.append(wb.node);
   renderParams();
   renderEmpty();
 
@@ -594,9 +565,10 @@
     };
     return { terminals: of('Terminal_ID'), cargo_types: of('Cargo_Type'),
              priorities: of('Shipment_Priority'), weather: of('Weather_Condition') };
-  }).catch(() => ({ terminals: [], cargo_types: [], priorities: [], weather: [] }));
+  }).catch(() => vocab);
 
-  const [vocab] = await Promise.all([vocabPromise, loadParams()]);
-  buildControls(vocab);
+  [vocab] = await Promise.all([vocabPromise, loadParams()]);
+  buildControls();
+  renderParams();
   solveBtn.disabled = !params;
 })();

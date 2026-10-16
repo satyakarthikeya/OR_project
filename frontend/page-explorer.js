@@ -18,14 +18,23 @@
 
   const content = AC.$('#content');
 
+  /** Correlation matrix as rows, plus the strongest off-diagonal |r|. */
+  function correlation(data) {
+    const cols = Object.keys(data.correlation);
+    const z = cols.map((r) => cols.map((c) => data.correlation[r][c]));
+    let peak = 0;
+    z.forEach((row, i) => row.forEach((v, j) => { if (i !== j) peak = Math.max(peak, Math.abs(v)); }));
+    return { cols, z, peak };
+  }
+
   /* ------------------------------------------------------------- sections */
 
   function kpiRow(k) {
-    return el('div', { class: 'grid grid-4', style: 'margin-bottom:16px' },
+    return el('div', { style: 'margin-bottom:48px' }, AC.kpis(
       AC.kpi('Records', fmt.int(k.n_records), `${fmt.int(k.n_terminals)} terminals`),
-      AC.kpi('Mean throughput', fmt.num(k.mean_throughput, 1), 'units, Throughput_Rate'),
+      AC.kpi('Mean throughput', fmt.num(k.mean_throughput, 1), 'units per record'),
       AC.kpi('Mean operational cost', money(k.mean_operational_cost), 'per record'),
-      AC.kpi('Bottleneck rate', ratio(k.bottleneck_rate), 'Share of records flagged as bottlenecked'));
+      AC.kpi('Bottleneck rate', ratio(k.bottleneck_rate), 'records flagged as bottlenecked')));
   }
 
   function terminalTable(rows) {
@@ -51,23 +60,19 @@
     const node = el('div', { class: 'plot', role: 'img',
       'aria-label': 'Bottleneck rate and facility utilisation per terminal' });
     const labels = terminals.map((r) => r.terminal);
-    // Series colours come from the shared palette via Plotly's colorway (set by AC.plot).
     AC.plot(node, [
       { type: 'bar', name: 'Bottleneck rate', x: labels, y: terminals.map((r) => r.bottleneck_rate * 100),
-        hovertemplate: '%{y:.1f}%<extra>Bottleneck</extra>' },
+        marker: { color: AC.colors.lead }, hovertemplate: '%{y:.1f}%<extra>Bottleneck</extra>' },
       { type: 'bar', name: 'Facility utilisation', x: labels, y: terminals.map((r) => r.mean_facility_util),
-        hovertemplate: '%{y:.1f}%<extra>Utilisation</extra>' },
+        marker: { color: AC.colors.other }, hovertemplate: '%{y:.1f}%<extra>Utilisation</extra>' },
     ], { barmode: 'group', bargap: 0.35,
          yaxis: { title: { text: '%', font: { size: 11 } }, rangemode: 'tozero' } }, 260);
     return node;
   }
 
-  function correlationPanel(data) {
-    const cols = Object.keys(data.correlation);
-    const z = cols.map((r) => cols.map((c) => data.correlation[r][c]));
+  function correlationPanel(data, corr) {
+    const { cols, z, peak } = corr;
     const labels = cols.map(short);
-    let peak = 0;
-    cols.forEach((r, i) => cols.forEach((c, j) => { if (i !== j) peak = Math.max(peak, Math.abs(z[i][j])); }));
     // The zoom bound comes from the data, so the toggle says where zooming would take you.
     const zoomBound = Math.max(0.01, Math.ceil(peak * 100) / 100);
 
@@ -75,45 +80,38 @@
     let scale = 'full';
 
     const draw = () => {
-      const dark = AC.theme() === 'dark';
       const bound = scale === 'full' ? 1 : zoomBound;
       AC.plot(node, [{
         type: 'heatmap', z, x: labels, y: labels, zmin: -bound, zmax: bound,
-        // Diverging through the panel's own ground, so "no correlation" reads as the surface itself.
-        colorscale: [[0, dark ? '#F97066' : '#B42318'], [0.5, dark ? 'rgb(19,27,43)' : 'rgb(255,255,255)'],
-                     [1, dark ? '#47CD89' : '#027A48']],
+        // Diverging through white, so "no correlation" reads as the blank surface itself.
+        colorscale: [[0, AC.colors.bad], [0.5, AC.colors.surface], [1, AC.colors.ink]],
         hovertemplate: '%{y} x %{x}<br>r = %{z:.3f}<extra></extra>',
         colorbar: { thickness: 10, len: 0.85, outlinewidth: 0, tickfont: { size: 10 } },
       }], { xaxis: { tickangle: -45, showgrid: false }, yaxis: { autorange: 'reversed', showgrid: false } }, 420);
     };
 
     const seg = el('div', { class: 'seg' });
-    const options = [['full', 'Scale -1...1'], ['zoom', `Zoom +/-${zoomBound.toFixed(2)}`]];
+    const options = [['full', 'Scale -1...1'], ['zoom', `Zoom ±${zoomBound.toFixed(2)}`]];
     const paintSeg = () => {
       AC.clear(seg).append(...options.map(([value, label]) => el('button', {
-        type: 'button', class: scale === value ? 'on' : '',
+        type: 'button', class: scale === value ? 'on' : '', 'aria-pressed': scale === value ? 'true' : 'false',
         onclick: () => { scale = value; paintSeg(); draw(); },
       }, label)));
     };
     paintSeg();
 
     const reading = el('div', {},
-      el('div', { class: 'field-label' }, 'Reading'),
-      el('p', { style: 'margin-top:6px' }, data.correlation_note),
-      el('div', { class: 'kpi', style: 'margin:14px 0' },
-        el('div', { class: 'value' }, fmt.num(peak, 3)),
-        el('div', { class: 'sub' }, `strongest off-diagonal |r| across ${labels.length} numeric columns`)),
+      el('p', {}, data.correlation_note),
+      el('div', { class: 'kpis', style: 'margin:16px 0' }, AC.kpi('Strongest off-diagonal |r|', fmt.num(peak, 3),
+        `across ${labels.length} numeric columns`)),
       AC.callout('warn', el('strong', {}, 'Consequence for the models. '),
-        'With no signal to regress on, fitting coefficients would produce noise dressed up as a result. ' +
-        'Part 1 instead derives every coefficient in closed form from group means plus a single named ' +
-        'assumption, which you can move and re-solve on the LP page.'),
-      el('p', { class: 'muted', style: 'font-size:12px' },
-        'Switch the scale to see the two readings: at -1...1 the matrix is uniformly blank, which is the honest ' +
-        'picture; zoomed to the observed range the structure that appears is sampling noise, not signal.'));
+        'With no signal to regress on, fitted coefficients would be noise. Part 1 derives every coefficient ' +
+        'from group means plus one named assumption, which you can move on the LP page.'),
+      el('p', { class: 'hint' },
+        'At -1...1 the matrix is blank: the honest picture. Zoomed in, the pattern you see is sampling noise.'));
 
     const panel = AC.panel('Correlation matrix: a finding, not a decoration',
-      el('div', { class: 'split-35' }, node, reading), seg);
-    // Panel is in the DOM only after it is returned; draw once the node is attached.
+      el('div', { class: 'split-35' }, el('div', { style: 'min-width:0' }, seg, node), reading));
     requestAnimationFrame(draw);
     return panel;
   }
@@ -127,26 +125,28 @@
       const entries = Object.entries(active.counts).sort((a, b) => b[1] - a[1]);
       AC.clear(chips).append(...counts.map((c) => el('button', {
         type: 'button', class: `chip ${c.column === active.column ? 'on' : ''}`,
+        'aria-pressed': c.column === active.column ? 'true' : 'false',
         onclick: () => { column = c.column; paint(); },
       }, short(c.column))));
       node.setAttribute('aria-label', `Distribution of ${active.column}`);
+      // Fixed per-bar height and a wide gap keep two-category columns from turning into slabs.
       AC.plot(node, [{
-        type: 'bar', orientation: 'h',
+        type: 'bar', orientation: 'h', marker: { color: AC.colors.ink },
         y: entries.map((e) => e[0]).reverse(), x: entries.map((e) => e[1]).reverse(),
         hovertemplate: '%{y}: %{x} records<extra></extra>',
-      }], { showlegend: false, margin: { l: 8, r: 16, t: 8, b: 8 },
+      }], { showlegend: false, bargap: 0.55, margin: { l: 8, r: 16, t: 8, b: 8 },
             xaxis: { rangemode: 'tozero' }, yaxis: { automargin: true } },
-        Math.max(240, entries.length * 46 + 70));
+        Math.min(320, entries.length * 34 + 60));
     };
     paint();
     return AC.panel('Category distributions',
-      el('div', {}, el('p', { class: 'muted' }, 'Category balance across the loaded scenario.'), chips, node));
+      el('div', {}, el('p', { class: 'muted' }, 'How records split across each category.'), chips, node));
   }
 
   function numericPanel(stats) {
     const col = (key, label) => ({ key, label, align: 'r', render: (r) => fmt.num(r[key], 1) });
     return AC.panel('Numeric ranges', el('div', {},
-      el('p', { class: 'muted' }, 'Every numeric column is uniform across its range: mean and median coincide throughout.'),
+      el('p', { class: 'muted' }, 'Every column is spread evenly across its range: mean and median match.'),
       AC.table({ rows: stats, columns: [
         { key: 'column', label: 'Column', render: (r) => el('strong', {}, short(r.column)) },
         col('min', 'Min'), col('median', 'Median'), col('mean', 'Mean'), col('max', 'Max'), col('std', 'Std'),
@@ -164,24 +164,41 @@
         el('button', { class: 'btn', type: 'button', onclick: () => load(dataset) }, 'Retry')));
       return;
     }
+    const corr = correlation(data);
     AC.clear(content).append(
+      AC.headline('The columns carry no mutual information: the strongest correlation between any two is ',
+        el('b', {}, `|r| = ${fmt.num(corr.peak, 3)}`),
+        ', so every model coefficient is derived, not fitted.'),
       kpiRow(data.kpis),
-      el('div', { class: 'split-35' },
-        AC.panel('Per-terminal profile', el('div', {},
-          el('p', { class: 'muted' }, 'The aggregates every LP coefficient is derived from.'),
-          terminalTable(data.terminal_stats),
-          el('p', { class: 'muted', style: 'font-size:12px;margin-top:10px' },
-            'Facility utilisation and bottleneck rate feed the congestion multiplier gamma; the capacity column is the ' +
-            '95th percentile of observed throughput, which becomes each terminal\'s ceiling in the LP.'))),
-        AC.panel('The signals that vary', el('div', {},
-          el('p', { class: 'muted' }, 'Bottleneck rate and facility utilisation are the only per-terminal measures that differ enough to model with.'),
-          signalChart(data.terminal_stats)))),
-      correlationPanel(data),
-      el('div', { class: 'grid grid-2' }, categoryPanel(data.categorical_counts), numericPanel(data.numeric_stats)));
+      // Full width: the ten-column table is clipped when it shares a row with the chart.
+      AC.panel('Per-terminal profile', el('div', {},
+        el('p', { class: 'muted' }, 'The averages every LP coefficient is derived from.'),
+        terminalTable(data.terminal_stats),
+        el('p', { class: 'hint', style: 'margin-top:10px' },
+          'Utilisation and bottleneck rate set the congestion factor (γ). Cap (p95) is each terminal\'s throughput ceiling.'))),
+      AC.panel('The signals that vary', el('div', {},
+        el('p', { class: 'muted' }, 'The only per-terminal measures that differ enough to model with.'),
+        signalChart(data.terminal_stats))),
+      correlationPanel(data, corr),
+      el('div', { class: 'grid grid-2' }, categoryPanel(data.categorical_counts), numericPanel(data.numeric_stats)),
+      el('div', { class: 'row', style: 'justify-content:flex-end;margin-top:48px' },
+        el('a', { class: 'btn btn-primary', href: 'lp.html' }, 'Next: plan staff →')));
   }
 
   async function init() {
-    AC.$('#caveat').append(AC.caveatBanner());
+    AC.$('#head').append(
+      AC.pageHead({
+        kicker: 'Step 1 · Data',
+        title: 'What the data actually says',
+        lede: 'A quick profile of the loaded data, and the one finding that shapes both models.',
+        about: [
+          el('p', {}, 'These are descriptive statistics for the loaded scenario. Nothing here is fitted.'),
+          el('p', {}, 'The per-terminal averages become the LP\'s coefficients, and the 95th-percentile ' +
+            'throughput becomes each terminal\'s capacity. The correlation matrix shows why: the columns ' +
+            'do not move together, so there is no relationship to estimate.'),
+        ],
+      }),
+      AC.caveatBanner());
     const dataset = await AC.shell('explorer', { needsDataset: true });
     if (dataset) load(dataset);
   }

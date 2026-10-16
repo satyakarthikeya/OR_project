@@ -103,20 +103,19 @@ This is a limitation to own, not to hide. The modelling is the assessed work.
 **Server:** Python · pandas · NumPy · PuLP (CBC) · FastAPI · Pydantic · Uvicorn. The OR core
 (`or_models/`) needs only PuLP and the standard library.
 **Frontend:** plain HTML + CSS + vanilla JavaScript (no React, no Tailwind), with Plotly.js and
-IBM Plex via CDN — no build step, no npm — served by FastAPI `StaticFiles`. One `uvicorn`
+Google Fonts via CDN — no build step, no npm — served by FastAPI `StaticFiles`. One `uvicorn`
 command runs the whole app.
 **Notebook:** Jupyter + matplotlib, for the report appendix only.
 
 Vite + shadcn/ui was evaluated and deliberately rejected: the toolchain cost outweighs the
 polish gain for a four-page project whose marks live in the OR work.
 
-**Visual design — "dispatch desk".** Grounded in air-side ground handling rather than
-dashboard convention: ruled square-cornered panels like a load sheet, IBM Plex Mono on every
-figure and label, signal amber (taxiway-signage yellow) as the sole accent, semantic
-jade/brick on a separate axis. Structural devices carry meaning — a left stripe marks a
-binding constraint, apron hazard tape marks the standing model-world caveat. Colour lives
-entirely in CSS-variable tokens, so both themes are designed rather than one being an
-inversion of the other. Rules in [AGENT.md](AGENT.md) §Frontend rules.
+**Visual design — research journal.** Warm ivory ground, near-black ink, one clay accent, serif
+only at display scale, hard-edged (no shadows, square corners). Headline numbers sit on inverted
+near-black bands. The header doubles as a 1-2-3 guide (Data → Staff plan → Shipments). Each
+model page is a settings panel with Solve always in reach and the result beside it, opening with
+one plain-English sentence; help text sits behind "?" buttons and detail in collapsible
+sections. The model-world caveat is one amber line on every page. Rules in [AGENT.md](AGENT.md) §Frontend rules.
 
 ### API surface
 
