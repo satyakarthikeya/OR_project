@@ -84,7 +84,6 @@ def _build_problem(payload: LPSolveIn, params: LPParameters) -> lp.AllocationPro
     )
     return lp.problem_from_parameters(
         params,
-        objective=payload.objective,
         workforce_total=params.workforce_total * payload.workforce_pool_factor,
         equipment_total=params.equipment_total * payload.equipment_pool_factor,
         budget=budget,
@@ -139,10 +138,9 @@ def _derivation_notes(params: LPParameters) -> list[DerivationNote]:
             formula=f"c^w_t = θ_c · C̄_t / w̄_t,  c^e_t = (1 − θ_c) · C̄_t / ē_t"
                     f"   (θ_c = {theta_c:g})",
             explanation=(
-                "The same split applied to observed operational cost. Note that "
-                "with θ = θ_c the two resources are equally cost-efficient "
-                "inside a terminal; separating the two shares is what creates a "
-                "genuine substitution trade-off."
+                "The same split applied to observed operational cost. Cost is "
+                "not in the objective: it prices the chosen allocation for "
+                "reporting and for the optional budget cap."
             ),
         ),
         DerivationNote(
@@ -290,13 +288,6 @@ def lp_parameters(payload: LPParametersIn) -> LPParametersOut:
     problem = lp.problem_from_parameters(params)
     base = baseline_mod.observed_allocation_baseline(problem, params)
 
-    penalties = {
-        objective: lp.problem_from_parameters(
-            params, objective=objective
-        ).unmet_penalty
-        for objective in ("max_throughput", "min_cost")
-    }
-
     return LPParametersOut(
         dataset_id=payload.dataset_id,
         n_records=int(params.assumptions["n_records"]),
@@ -306,7 +297,7 @@ def lp_parameters(payload: LPParametersIn) -> LPParametersOut:
         baseline_throughput=params.baseline_throughput(),
         baseline_cost=params.baseline_cost(),
         baseline_unmet_demand=base.evaluation.total_unmet_demand,
-        unmet_penalty=penalties,
+        unmet_penalty=problem.unmet_penalty,
         assumptions=_assumptions(params),
         derivation=_derivation_notes(params),
         warnings=list(params.warnings),
@@ -347,7 +338,6 @@ def _comparison_out(block: comparison.ComparisonBlock) -> ComparisonOut:
         return MetricDeltaOut(**vars(m))
 
     return ComparisonOut(
-        objective=block.objective,
         headline=metric(block.headline),
         metrics=[metric(m) for m in block.metrics],
         expanded_resources=block.expanded_resources,
@@ -368,7 +358,6 @@ def lp_solve(payload: LPSolveIn) -> LPSolveOut:
             status=SolveStatus(result.status),
             message=result.message,
             suggestions=result.suggestions,
-            objective=payload.objective,
             objective_label=result.objective_label,
             solve_seconds=result.solve_seconds,
             unmet_penalty=problem.unmet_penalty,
@@ -384,7 +373,6 @@ def lp_solve(payload: LPSolveIn) -> LPSolveOut:
     block = comparison.compare_allocations(
         baseline=base.evaluation,
         optimized=optimized,
-        objective=payload.objective,
         expanded_resources=expanded,
         notes=base.notes,
     )
@@ -393,7 +381,6 @@ def lp_solve(payload: LPSolveIn) -> LPSolveOut:
         dataset_id=payload.dataset_id,
         status=SolveStatus.OPTIMAL,
         message=result.message,
-        objective=payload.objective,
         objective_label=result.objective_label,
         solve_seconds=result.solve_seconds,
         allocation=_allocation_rows(problem, base.evaluation, optimized),
@@ -443,7 +430,6 @@ def lp_sensitivity(payload: LPSensitivityIn) -> LPSensitivityOut:
         workforce_total = params.workforce_total * float(factor)
         problem = lp.problem_from_parameters(
             params,
-            objective=payload.objective,
             workforce_total=workforce_total,
             equipment_total=base_problem.equipment_total,
             budget=base_problem.budget,
@@ -467,8 +453,7 @@ def lp_sensitivity(payload: LPSensitivityIn) -> LPSensitivityOut:
 
     return LPSensitivityOut(
         dataset_id=payload.dataset_id,
-        objective=payload.objective,
-        objective_label=lp.OBJECTIVE_LABELS[payload.objective],
+        objective_label=lp.OBJECTIVE_LABEL,
         baseline_workforce_total=params.workforce_total,
         points=points,
         note=(

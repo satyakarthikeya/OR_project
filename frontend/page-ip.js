@@ -44,7 +44,7 @@
   /* ----------------------------------------------------------------- state */
 
   let controls = DEFAULTS();
-  const handoff = AC.handoff.load(dataset.dataset_id);   // {workforce, objective} or null
+  const handoff = AC.handoff.load(dataset.dataset_id);   // {workforce} or null
   const lpWorkforce = handoff && handoff.workforce && Object.keys(handoff.workforce).length ? handoff.workforce : null;
   let vocab = null;
   let lastBatch = null;
@@ -144,11 +144,9 @@
         onChange: (v) => { c.use_lp = v; draw(); changed({ batch: false }); if (lastBatch) renderBatch(false); },
       }));
       if (c.use_lp) {
-        const label = handoff.objective && (typeof handoff.objective === 'string' ? handoff.objective
-          : handoff.objective.label || handoff.objective.objective_label);
         box.append(el('dl', { class: 'kv' }, Object.entries(lpWorkforce).map(([t, w]) => [
           el('dt', {}, t), el('dd', { class: 'num' }, `${fmt.num(w, 1)} workers → ${fmt.int(w * SHIFT_MINUTES)} min`)])),
-        el('div', { class: 'hint' }, 'From your Part 1 solve', label ? [' (', el('em', {}, label), ')'] : '', '. Re-solve Part 1 to change these.'));
+        el('div', { class: 'hint' }, 'From your Part 1 solve. Re-solve Part 1 to change these.'));
       } else {
         box.append(AC.callout('warn', el('b', {}, 'Running standalone'), " - Part 1's plan is switched off, so the worker budget comes from the batch it constrains."));
       }

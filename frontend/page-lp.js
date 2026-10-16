@@ -12,22 +12,23 @@
   const DEFAULTS = () => ({
     filters: { terminals: [], cargo_types: [], priorities: [], weather: [], peak_hour: null },
     labor_share: 0.6, cost_labor_share: 0.6, congestion_delta: 1.0, apply_congestion: true,
-    demand_scale: 1.0, demand_day: 'mean', objective: 'max_throughput',
+    demand_scale: 1.0, demand_day: 'mean',
     workforce_pool_factor: 1.0, equipment_pool_factor: 1.0, budget_enabled: false, budget_factor: 1.0,
   });
   const C = { accent: AC.colors.lead, muted: AC.colors.other, good: AC.colors.good, bad: AC.colors.bad };
   // Keys that only change the solve, not the derived parameters, so they skip the refetch.
-  const SOLVE_ONLY = ['objective', 'workforce_pool_factor', 'equipment_pool_factor', 'budget_factor', 'budget_enabled'];
+  const SOLVE_ONLY = ['workforce_pool_factor', 'equipment_pool_factor', 'budget_factor', 'budget_enabled'];
 
   const dataset = await AC.shell('lp', { needsDataset: true });
   const app = document.getElementById('app');
   app.append(AC.pageHead({
     kicker: 'Part 1 · Linear programming',
     title: 'Workforce and equipment allocation',
-    lede: 'Decide how many workers and machines each terminal gets.',
+    lede: 'Decide how many workers and machines each terminal gets, to maximise throughput.',
     about: [
       el('p', {}, 'Pick a planning scenario, inspect the coefficients it produces, then solve. A linear programme ' +
-        'moves the observed workers and equipment between terminals to maximise throughput or minimise cost.'),
+        'moves the observed workers and equipment between terminals to maximise throughput. Demand that cannot be met is ' +
+        'carried as a penalised shortfall rather than making the model infeasible.'),
       el('p', {}, "Every parameter is derived in closed form from the scenario's group means. Nothing is fitted. " +
         'The result is scored against the observed allocation with the same objective function and the same resource totals.'),
     ],
@@ -54,7 +55,7 @@
     apply_congestion: c.apply_congestion, demand_scale: c.demand_scale, demand_day: c.demand_day,
   });
   const solvePayload = () => ({
-    ...paramsPayload(), objective: c.objective,
+    ...paramsPayload(),
     workforce_pool_factor: c.workforce_pool_factor, equipment_pool_factor: c.equipment_pool_factor,
     budget_factor: c.budget_enabled ? c.budget_factor : null,
   });
@@ -65,7 +66,7 @@
   function changed(key) {
     renderExpanded();
     renderStale();
-    if (SOLVE_ONLY.includes(key)) { renderParams(); return; }   // penalty M depends on the objective
+    if (SOLVE_ONLY.includes(key)) return;
     paramsLoading = true;
     renderParams();
     clearTimeout(timer);
@@ -125,9 +126,6 @@
     w.delta.setDisabled(!c.apply_congestion);
 
     controlsHost.replaceChildren(
-      ui.segmented({ label: 'Goal', options: [['max_throughput', 'Max throughput'], ['min_cost', 'Min cost']],
-        value: c.objective, onChange: set('objective'),
-        help: 'Max throughput: move resources to where they produce most. Min cost: meet demand as cheaply as possible.' }),
       el('div', { class: 'section-title' }, 'Resources'),
       w.workers, w.equipment,
       ui.group(ui.toggle({ label: 'Cap the budget', checked: c.budget_enabled,
@@ -147,7 +145,7 @@
           help: 'Share of throughput attributed to workers. The single free assumption behind the productivities α and β.' }),
         ui.slider({ label: 'Cost labour share (θ_c)', min: 0.05, max: 0.95, step: 0.05, value: c.cost_labor_share,
           format: (v) => v.toFixed(2), onInput: set('cost_labor_share'),
-          help: 'With θ_c = θ the two resources are equally cost-efficient inside a terminal; separate them to create a substitution trade-off.' }),
+          help: 'Splits observed operational cost between workers and equipment. Cost is reported and used by the budget cap; it is not in the objective.' }),
         ui.group(ui.toggle({ label: 'Congestion multiplier (γ)', checked: c.apply_congestion,
           help: 'Off, the terminals are near-identical and the allocation becomes a solver artefact. This switch exists to demonstrate that.',
           onChange: (v) => { c.apply_congestion = v; w.delta.setDisabled(!v); changed('apply_congestion'); } }), w.delta),
@@ -227,7 +225,7 @@
         ['Baseline cost', fmt.num(params.baseline_cost, 0)],
         ['Baseline unmet demand', fmt.num(params.baseline_unmet_demand, 2)],
         ['Planning horizon H', `${fmt.num(params.assumptions.horizon_hours, 0)} h`],
-        ['Unmet-demand penalty M', fmt.num(params.unmet_penalty[c.objective], 1)],
+        ['Unmet-demand penalty M', fmt.num(params.unmet_penalty, 1)],
         ['Capacity percentile', fmt.pct(params.assumptions.capacity_percentile * 100, 0)],
       ])),
       showDerivation ? gap([el('div', { class: 'field-label' }, 'Derivation'),
@@ -289,7 +287,7 @@
     if (result.status === 'Optimal') {
       const workforce = {};
       result.allocation.forEach((r) => { workforce[r.terminal] = r.optimized_workforce; });
-      AC.handoff.save(dataset.dataset_id, workforce, result.objective);
+      AC.handoff.save(dataset.dataset_id, workforce);
       AC.markStepDone('lp');
     } else {
       AC.handoff.clear();
@@ -323,11 +321,10 @@
       percent != null ? el('small', {}, ` (${fmt.signed(percent, 1)}%)`) : '');
   }
 
-  /** One plain sentence: throughput or cost and unmet demand, never the objective %. */
+  /** One plain sentence: throughput and unmet demand, never the objective %. */
   function headlineFor(r, payload) {
     const cmp = r.comparison;
     const thr = metricOf(cmp, 'total_throughput');
-    const cost = metricOf(cmp, 'total_cost');
     const unmet = metricOf(cmp, 'total_unmet_demand');
     const b = (t) => el('b', {}, t);
     const workers = fmt.num(r.resources.workforce_available, 0);
@@ -344,12 +341,6 @@
     };
     const unmetPart = unmet.optimized <= 0.001 ? ', with no unmet demand'
       : [', leaving ', b(fmt.num(unmet.optimized, 1)), ` ${unmet.unit} of demand unmet (observed ${fmt.num(unmet.baseline, 1)})`];
-    if (r.objective === 'min_cost') {
-      const thrFalls = thr.baseline > 0 && thr.delta / thr.baseline < -0.01;
-      return AC.headline('In the model, ', lead, move(cost, 'cost', 'raises', 'cuts', 0, ''), unmetPart,
-        thrFalls ? [', while throughput falls from ', fmt.num(thr.baseline, 1), ' to ', b(fmt.num(thr.optimized, 1)),
-          ` ${thr.unit} because the cheapest plan stops at the demand line`] : '', '.');
-    }
     return AC.headline('In the model, ', lead, move(thr, 'throughput', 'lifts', 'lowers', 1, ` ${thr.unit}`), unmetPart, '.');
   }
 
@@ -550,7 +541,7 @@
     c = DEFAULTS(); buildControls(); changed('filters');
   } }, 'Reset');
   const wb = AC.workbench({ title: 'Settings', controls: controlsHost, reset: resetBtn,
-    actions: [solveBtn, el('div', { class: 'hint' }, 'Runs CBC once, about a second.')] });
+    actions: [solveBtn, el('div', { class: 'hint' }, 'Goal: maximise throughput. Solves in about a second.')] });
   wb.results.append(staleHost, resultsHost, paramsHost);
   app.append(wb.node);
   renderParams();

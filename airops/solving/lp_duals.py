@@ -10,7 +10,7 @@ import pulp
 
 from airops.core import config
 from airops.solving.lp_results import AllocationEvaluation, ConstraintDual
-from or_models.inputs import AllocationProblem, Objective
+from or_models.inputs import AllocationProblem
 
 
 def _dual_of(constraint: pulp.LpConstraint) -> float:
@@ -53,9 +53,7 @@ def collect_duals(
                 slack=float(slack),
                 shadow_price=shadow,
                 binding=binding,
-                interpretation=_interpret(
-                    kind, terminal, binding, shadow, problem.objective
-                ),
+                interpretation=_interpret(kind, terminal, binding, shadow),
             )
         )
 
@@ -109,19 +107,18 @@ def _interpret(
     terminal: str | None,
     binding: bool,
     shadow: float,
-    objective: Objective,
 ) -> str:
-    unit = "throughput units" if objective == "max_throughput" else "cost units"
+    """Read a shadow price as extra throughput (tons/h) per unit of relaxation."""
     where = f" at {terminal}" if terminal else ""
 
     if not binding:
         return f"Slack — this constraint{where} is not limiting the solution."
 
-    magnitude = f"{abs(shadow):,.3f} {unit}"
+    magnitude = f"{abs(shadow):,.3f} tons/h of throughput"
     if kind == "resource_pool":
         return (
-            f"Binding. One more unit in this pool changes the objective by "
-            f"{magnitude} — the pool is the system's bottleneck."
+            f"Binding. One more unit in this pool adds {magnitude} — the "
+            f"pool is the system's bottleneck."
         )
     if kind == "capacity":
         return (

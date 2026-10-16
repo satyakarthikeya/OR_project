@@ -8,17 +8,15 @@ just receive them.  Every symbol in the comments matches MODEL.md.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 # --- Defaults shared with the application config ---------------------------------
 
 DEFAULT_STAFFING_RATIO = 1.5      # rho: workers needed per equipment unit
-DEFAULT_PENALTY_FACTOR = 10.0     # M = 10 x the largest objective coefficient
+DEFAULT_PENALTY_FACTOR = 10.0     # M = 10 x the largest throughput coefficient
 FORCED_PRIORITY = "Critical"      # class pinned in by the "force Critical" policy
 HAZARDOUS_CARGO_TYPE = "Hazardous"
 PERISHABLE_CARGO_TYPE = "Perishable"
-
-Objective = Literal["max_throughput", "min_cost"]
 
 
 # =============================================================================
@@ -33,15 +31,14 @@ class AllocationProblem:
     terminals: list[str]                          # T1..T4
     alpha: dict[str, float]                       # tons/h produced per worker
     beta: dict[str, float]                        # tons/h produced per equipment unit
-    cost_worker: dict[str, float]                 # cost per worker
-    cost_equipment: dict[str, float]              # cost per equipment unit
+    cost_worker: dict[str, float]                 # cost per worker (reported, budget)
+    cost_equipment: dict[str, float]              # cost per equipment unit (reported, budget)
     demand: dict[str, float]                      # D_t, tons/h that must be handled
     capacity: dict[str, float]                    # Cap_t, physical ceiling, tons/h
     workforce_bounds: dict[str, tuple[float, float]]   # (w_min, w_max)
     equipment_bounds: dict[str, tuple[float, float]]   # (e_min, e_max)
     workforce_total: float                        # W, the worker pool
     equipment_total: float                        # E, the equipment pool
-    objective: Objective = "max_throughput"       # or "min_cost"
     budget: float | None = None                   # B, optional cost cap
     penalty_factor: float = DEFAULT_PENALTY_FACTOR
     staffing_ratio: float = DEFAULT_STAFFING_RATIO     # rho
@@ -51,13 +48,10 @@ class AllocationProblem:
         """M: the price of one unit of unmet demand.
 
         It must dominate whatever the objective could gain by leaving demand
-        unmet, so it is scaled to the largest coefficient of the *active*
-        objective.  It is a "large number", not a real currency amount.
+        unmet, so it is scaled to the largest throughput coefficient (alpha or
+        beta).  It is a "large number", not a real currency amount.
         """
-        if self.objective == "max_throughput":
-            coefficients = [*self.alpha.values(), *self.beta.values()]
-        else:
-            coefficients = [*self.cost_worker.values(), *self.cost_equipment.values()]
+        coefficients = [*self.alpha.values(), *self.beta.values()]
         return self.penalty_factor * max([*coefficients, 1e-9])
 
 

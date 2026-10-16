@@ -223,9 +223,7 @@ def test_starving_one_terminal_in_part_one_shuts_it_out_in_part_two(
 def test_a_real_lp_allocation_feeds_the_budget(df: pd.DataFrame) -> None:
     """End to end: solve Part 1, spend w_t* in Part 2."""
     params = preprocessing.estimate_lp_params(df)
-    allocation = lp.solve_allocation(
-        lp.problem_from_parameters(params, objective="max_throughput")
-    )
+    allocation = lp.solve_allocation(lp.problem_from_parameters(params))
     assert allocation.solution is not None
 
     batch = preprocessing.build_batch(df, size=60, seed=3)

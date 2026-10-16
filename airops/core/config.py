@@ -127,8 +127,8 @@ DEMAND_DAY_PERCENTILE = 0.95
 BOUND_LOW_PERCENTILE = 0.05
 BOUND_HIGH_PERCENTILE = 0.95
 
-#: Penalty per unit of unmet demand. Scaled against the objective at build time
-#: so the solver always prefers meeting demand over saving cost.
+#: Penalty per unit of unmet demand. Scaled against the largest throughput
+#: coefficient at build time so the solver always prefers meeting demand.
 UNMET_DEMAND_PENALTY_FACTOR = model_inputs.DEFAULT_PENALTY_FACTOR
 
 #: Terminal slices thinner than this make group means unstable; callers warn.

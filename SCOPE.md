@@ -30,7 +30,7 @@ check before the review — every row must be demonstrable live.
 | "The questions you ask and answer can vary by context" | Four questions, stated in §2, all answered from the dataset | §2 |
 | **"Create a user interface through which the data can be loaded"** | Home page: load the bundled CSV in one click, or upload your own with schema validation and a readable error report | `POST /api/datasets`, `/api/datasets/bundled` |
 | **"…some statistics about the data can be generated on demand"** | Data Explorer page: KPI tiles, per-column distributions, per-terminal box plots, categorical breakdowns and a correlation heatmap, all computed server-side per request against the loaded dataset | `GET /api/datasets/{id}/summary` |
-| **"…and at least two optimisations can be done (which can be chosen by the user)"** | Two models, user-selected from the navigation: **Part 1 · LP** allocation and **Part 2 · IP** shipment selection. Within Part 1 the user further chooses between two objectives (max throughput / min cost) | Part 1 and Part 2 pages |
+| **"…and at least two optimisations can be done (which can be chosen by the user)"** | Two models, user-selected from the navigation: **Part 1 · LP** allocation and **Part 2 · IP** shipment selection. Part 1 maximises throughput; Part 2 maximises priority-weighted value | Part 1 and Part 2 pages |
 | "You can choose any tool (not just spreadsheets)" | Python, pandas, NumPy, PuLP + CBC, FastAPI, plain HTML/CSS/JavaScript, Plotly. No spreadsheet anywhere | §5 |
 
 **Two things the wording makes non-optional**, so treat them as acceptance criteria rather
@@ -63,7 +63,7 @@ Full formulation in [MODEL.md](MODEL.md). Summary only here.
 |---|---|---|
 | Model | Linear Programming (MILP — equipment is integer) | 0-1 multi-dimensional knapsack |
 | Decision | Workers and equipment per terminal | Which shipments to process this window |
-| Objective | Max throughput, **or** min cost subject to demand — user picks | Max priority-weighted value |
+| Objective | Max throughput, less a penalty on unmet demand | Max priority-weighted value |
 | Constraints | Resource pools, soft demand, terminal ceilings, staffing coupling, optional budget, per-terminal bounds | Volume, worker-minutes **from Part 1**, equipment-minutes, optional policy rules |
 | Baseline | Observed allocation in the same objective | FCFS by arrival time |
 | Key output | Allocation, shadow prices, sensitivity curve | Accepted/rejected set, priority mix, capacity utilisation |
@@ -141,7 +141,7 @@ see.
 **Home** — load the bundled dataset or upload one, validation feedback, caveat banner.
 **Data Explorer** — KPI tiles, filters, distribution charts, per-terminal box plots,
 correlation heatmap presented as a *finding*, not decoration.
-**Part 1 · LP** — scenario filters, objective toggle, resource + `θ` + congestion sliders,
+**Part 1 · LP** — scenario filters, resource + `θ` + congestion sliders,
 derived-parameters table, Solve, then results with duals and the sensitivity chart.
 **Part 2 · IP** — batch filters and size, capacity fraction, priority weights, λ sliders,
 force-Critical toggle, Solve, then IP vs FCFS comparison and the accepted/rejected table.
