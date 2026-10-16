@@ -1,0 +1,44 @@
+"""FastAPI entry point: routing and static mounting only."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pulp
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+
+from airops.api import datasets, ip, lp
+from airops.core import config
+from airops.core.store import store
+from airops.schemas.common import HealthOut
+
+app = FastAPI(
+    title="Air Cargo Resource Allocation & Operational Optimization",
+    description=(
+        "Operations Research decision-support system for air-cargo terminals. "
+        "Part 1 allocates workforce and equipment across terminals (LP); "
+        "Part 2 selects which shipments to process under capacity limits (IP)."
+    ),
+    version="0.1.0",
+)
+
+app.include_router(datasets.router)
+app.include_router(lp.router)
+app.include_router(ip.router)
+
+
+@app.get("/api/health", response_model=HealthOut)
+def health() -> HealthOut:
+    solver = pulp.PULP_CBC_CMD(msg=False)
+    return HealthOut(
+        status="ok",
+        solver_available=bool(solver.available()),
+        solver_name=solver.name,
+        datasets_loaded=len(store.list_all()),
+    )
+
+
+_frontend = Path(config.PROJECT_ROOT) / "frontend"
+if _frontend.is_dir():
+    app.mount("/", StaticFiles(directory=_frontend, html=True), name="frontend")

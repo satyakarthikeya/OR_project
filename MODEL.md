@@ -111,6 +111,10 @@ productivity. Lead with it in the report.
 
 ### 3.3 Constraints
 
+The constraints are numbered (1)–(7) for the LP and (1)–(4) for the IP, exactly as in
+`or_models/lp_model.py` and `or_models/ip_model.py`; optional rules are marked (+) in place of
+a number.
+
 ```latex
 \begin{aligned}
 \sum_{t} w_t &\le W &&\text{(1) workforce pool}\\[2pt]
@@ -118,10 +122,10 @@ productivity. Lead with it in the report.
 \alpha_t w_t + \beta_t e_t + s_t &\ge D_t &&\forall t \quad\text{(3) demand, \textbf{soft}}\\[2pt]
 \alpha_t w_t + \beta_t e_t &\le \mathrm{Cap}_t &&\forall t \quad\text{(4) terminal ceiling}\\[2pt]
 w_t &\ge \rho\, e_t &&\forall t \quad\text{(5) staffing coupling}\\[2pt]
-\sum_{t} \bigl(c^{w}_{t} w_t + c^{e}_{t} e_t\bigr) &\le B &&\text{(6) budget, optional}\\[2pt]
+\sum_{t} \bigl(c^{w}_{t} w_t + c^{e}_{t} e_t\bigr) &\le B &&\text{(+) budget, optional}\\[2pt]
 w_t^{\min} \le w_t \le w_t^{\max}, \quad
-e_t^{\min} &\le e_t \le e_t^{\max} &&\forall t \quad\text{(7) allocation limits}\\[2pt]
-w_t,\; e_t,\; s_t &\ge 0 &&\forall t \quad\text{(8) non-negativity}
+e_t^{\min} &\le e_t \le e_t^{\max} &&\forall t \quad\text{(6) allocation limits}\\[2pt]
+w_t,\; e_t,\; s_t &\ge 0 &&\forall t \quad\text{(7) non-negativity}
 \end{aligned}
 ```
 
@@ -136,7 +140,7 @@ scale `Z` and every shadow price by 8, so the code does not.
 and reports a shortfall instead of returning Infeasible. A scenario the user builds with
 sliders should never hand back "Infeasible" and nothing else.
 
-**(4) and (7) are hard, and they can conflict.** If `Cap_t < α_t w_t^min + β_t e_t^min`
+**(4) and (6) are hard, and they can conflict.** If `Cap_t < α_t w_t^min + β_t e_t^min`
 the box is empty and CBC returns Infeasible for a reason the user cannot see. Check this
 before solving and say so. (`check_problem` does this for the pool and budget cases
 already; the capacity-vs-floor case needs adding alongside constraint 5.)
@@ -354,6 +358,10 @@ should be stated in one sentence rather than left to be discovered.
 
 ### 4.4 Constraints
 
+The constraints are numbered (1)–(7) for the LP and (1)–(4) for the IP, exactly as in
+`or_models/lp_model.py` and `or_models/ip_model.py`; optional rules are marked (+) in place of
+a number.
+
 ```latex
 \begin{aligned}
 \sum_i \text{Vol}_i\, x_i &\le V_{\text{cap}}
@@ -366,7 +374,7 @@ x_i &\in \{0,1\} &&\text{(4)}
 \end{aligned}
 ```
 
-Optional policy constraints (UI toggles): force all Critical in; cap the Hazardous count;
+Optional policy constraints, marked (+) (UI toggles): force all Critical in; cap the Hazardous count;
 require a minimum number of Perishables.
 
 **(2) is where Part 2 consumes Part 1, and it is the most valuable single idea in the
@@ -581,11 +589,11 @@ multiple knapsack over four bins.
 
 | Formulation section | Code |
 |---|---|
-| §3.4 parameter derivation | `backend/core/preprocessing.py` — `estimate_lp_params`, `terminal_summary`, `_congestion_multipliers` |
-| §3.1–3.3 LP | `backend/models/lp_resource_allocation.py` — `problem_from_parameters`, `solve_allocation` |
-| §4 IP | `backend/models/ip_shipment_selection.py` — `problem_from_batch`, `solve_selection`; the data layer is `build_batch` / `default_capacities` in `preprocessing.py` |
-| §5 baselines | `backend/core/baseline.py` — `observed_allocation_baseline` (LP), `fcfs_baseline` and `greedy_baseline` (IP); deltas and disclosures in `comparison.py` |
+| §3.4 parameter derivation | `airops/core/preprocessing.py` — `estimate_lp_params`, `terminal_summary`, `_congestion_multipliers` |
+| §3.1–3.3 LP | `or_models/lp_model.py` — `build_lp` (variables, objective, constraints), `solve_lp`, `read_lp`; run by `airops/solving/lp_runner.py` (pre-checks, solves), duals in `lp_duals.py` |
+| §4 IP | `or_models/ip_model.py` — `build_ip`, `solve_ip`, `read_ip`; run by `airops/solving/ip_runner.py`; the data layer is `build_batch` / `default_capacities` in `airops/core/preprocessing.py` |
+| §5 baselines | `airops/solving/baseline.py` — `observed_allocation_baseline` (LP), `fcfs_baseline` and `greedy_baseline` (IP); deltas and disclosures in `airops/solving/comparison.py` |
 | §6 sensitivity | `POST /api/lp/sensitivity`; Part 2 curves not yet written |
-| §7 assumptions | `backend/core/config.py` |
+| §7 assumptions | `airops/core/config.py` |
 
 Gaps between this file and the code are tracked in [AGENT.md](AGENT.md) §Open defects.

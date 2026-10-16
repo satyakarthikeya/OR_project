@@ -11,8 +11,8 @@ import math
 import pandas as pd
 import pytest
 
-from backend.core import config, data_loader, preprocessing
-from backend.core.preprocessing import ScenarioFilters
+from airops.core import config, data_loader, preprocessing
+from airops.core.preprocessing import ScenarioFilters
 
 
 @pytest.fixture(scope="module")

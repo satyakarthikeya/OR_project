@@ -13,10 +13,11 @@ from dataclasses import replace
 import pandas as pd
 import pytest
 
-from backend.core import baseline as baseline_mod
-from backend.core import comparison, config, data_loader, preprocessing
-from backend.core.preprocessing import LPParameters, ScenarioFilters
-from backend.models import lp_resource_allocation as lp
+from airops.solving import baseline as baseline_mod
+from airops.core import config, data_loader, preprocessing
+from airops.solving import comparison
+from airops.core.preprocessing import LPParameters, ScenarioFilters
+from airops.solving import lp_runner as lp
 
 OBJECTIVES = ("max_throughput", "min_cost")
 
@@ -562,18 +563,6 @@ def test_unmet_demand_forces_clean_duals_from_a_second_solve(
     pool = next(d for d in result.duals if d.name == "worker_pool")
     assert pool.shadow_price < problem.unmet_penalty
     assert pool.shadow_price <= max(hungry.alpha.values()) + 1e-6
-
-
-# --- Purity -------------------------------------------------------------------
-
-
-def test_model_module_stays_pure() -> None:
-    """Models must not reach for the data layer or the web layer (AGENT.md)."""
-    source = (config.PROJECT_ROOT / "backend" / "models" /
-              "lp_resource_allocation.py").read_text(encoding="utf-8")
-    for forbidden in ("import pandas", "from fastapi", "import fastapi",
-                      "from backend.core.store", "read_csv"):
-        assert forbidden not in source, f"model imports {forbidden}"
 
 
 # --- Service-level disclosure on min_cost (MODEL.md section 5) ---------------

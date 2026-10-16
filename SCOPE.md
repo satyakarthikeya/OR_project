@@ -31,7 +31,7 @@ check before the review — every row must be demonstrable live.
 | **"Create a user interface through which the data can be loaded"** | Home page: load the bundled CSV in one click, or upload your own with schema validation and a readable error report | `POST /api/datasets`, `/api/datasets/bundled` |
 | **"…some statistics about the data can be generated on demand"** | Data Explorer page: KPI tiles, per-column distributions, per-terminal box plots, categorical breakdowns and a correlation heatmap, all computed server-side per request against the loaded dataset | `GET /api/datasets/{id}/summary` |
 | **"…and at least two optimisations can be done (which can be chosen by the user)"** | Two models, user-selected from the navigation: **Part 1 · LP** allocation and **Part 2 · IP** shipment selection. Within Part 1 the user further chooses between two objectives (max throughput / min cost) | Part 1 and Part 2 pages |
-| "You can choose any tool (not just spreadsheets)" | Python, pandas, NumPy, PuLP + CBC, FastAPI, React, Plotly. No spreadsheet anywhere | §5 |
+| "You can choose any tool (not just spreadsheets)" | Python, pandas, NumPy, PuLP + CBC, FastAPI, plain HTML/CSS/JavaScript, Plotly. No spreadsheet anywhere | §5 |
 
 **Two things the wording makes non-optional**, so treat them as acceptance criteria rather
 than polish:
@@ -100,21 +100,22 @@ This is a limitation to own, not to hide. The modelling is the assessed work.
 
 ## 5. Technology
 
-**Backend:** Python · pandas · NumPy · PuLP (CBC) · FastAPI · Pydantic · Uvicorn.
-**Frontend:** React 18 + Tailwind + Plotly.js + IBM Plex, all via CDN — no build step, no
-npm — served by FastAPI `StaticFiles`. One `uvicorn` command runs the whole app.
+**Server:** Python · pandas · NumPy · PuLP (CBC) · FastAPI · Pydantic · Uvicorn. The OR core
+(`or_models/`) needs only PuLP and the standard library.
+**Frontend:** plain HTML + CSS + vanilla JavaScript (no React, no Tailwind), with Plotly.js and
+Google Fonts via CDN — no build step, no npm — served by FastAPI `StaticFiles`. One `uvicorn`
+command runs the whole app.
 **Notebook:** Jupyter + matplotlib, for the report appendix only.
 
 Vite + shadcn/ui was evaluated and deliberately rejected: the toolchain cost outweighs the
 polish gain for a four-page project whose marks live in the OR work.
 
-**Visual design — "dispatch desk".** Grounded in air-side ground handling rather than
-dashboard convention: ruled square-cornered panels like a load sheet, IBM Plex Mono on every
-figure and label, signal amber (taxiway-signage yellow) as the sole accent, semantic
-jade/brick on a separate axis. Structural devices carry meaning — a left stripe marks a
-binding constraint, apron hazard tape marks the standing model-world caveat. Colour lives
-entirely in CSS-variable tokens, so both themes are designed rather than one being an
-inversion of the other. Rules in [AGENT.md](AGENT.md) §Frontend.
+**Visual design — research journal.** Warm ivory ground, near-black ink, one clay accent, serif
+only at display scale, hard-edged (no shadows, square corners). Headline numbers sit on inverted
+near-black bands. The header doubles as a 1-2-3 guide (Data → Staff plan → Shipments). Each
+model page is a settings panel with Solve always in reach and the result beside it, opening with
+one plain-English sentence; help text sits behind "?" buttons and detail in collapsible
+sections. The model-world caveat is one amber line on every page. Rules in [AGENT.md](AGENT.md) §Frontend rules.
 
 ### API surface
 
@@ -149,7 +150,7 @@ force-Critical toggle, Solve, then IP vs FCFS comparison and the accepted/reject
 
 ## 6. Milestones
 
-**Status: M1–M9 complete — both parts ship end to end and 167 tests pass. M10–M11 remain.**
+**Status: M1–M9 done, plus the restructure: the OR core is separated into `or_models/` and the UI is rewritten in plain HTML. Both parts ship end to end and `pytest` passes. M10–M11 remain.**
 The seven defects listed in [AGENT.md](AGENT.md) are all closed, so the code now implements
 the model [MODEL.md](MODEL.md) describes.
 
@@ -158,14 +159,14 @@ the model [MODEL.md](MODEL.md) describes.
 | # | Milestone | Deliverable | Done when |
 |---|---|---|---|
 | M1 | Setup & EDA | `.venv`, `requirements.txt`, folder skeleton, `notebooks/eda.ipynb`, `GET /api/health` | Notebook reproduces §4's table including the correlation heatmap; `pulp.PULP_CBC_CMD().available()` is `True`; uvicorn serves the app |
-| M2 | Data layer | `core/config.py`, `data_loader.py`, `store.py`, `preprocessing.py` with `terminal_summary()`, `estimate_lp_params()`, `build_batch()`; `tests/test_preprocessing.py`; the two dataset endpoints | Uploading the CSV returns a `dataset_id`; summary returns per-terminal aggregates; tests assert the calibration identity `α_t w̄_t + β_t ē_t = T̄_t` and that every parameter is finite and positive |
+| M2 | Data layer | `airops/core/config.py`, `data_loader.py`, `store.py`, `preprocessing.py` with `terminal_summary()`, `estimate_lp_params()`, `build_batch()`; `tests/test_preprocessing.py`; the two dataset endpoints | Uploading the CSV returns a `dataset_id`; summary returns per-terminal aggregates; tests assert the calibration identity `α_t w̄_t + β_t ē_t = T̄_t` and that every parameter is finite and positive |
 
 ### Part 1 — LP track
 
 | # | Milestone | Deliverable | Done when |
 |---|---|---|---|
-| M3 | LP standalone | `models/lp_resource_allocation.py` + runner; `tests/test_lp.py` | Solves to Optimal on the default scenario; baseline is feasible; optimum ≥ baseline on its own objective; duals extracted; congestion multiplier demonstrably changes the allocation |
-| M4 | LP API | `schemas/lp.py`, `api/lp.py` — `/parameters`, `/solve`, `/sensitivity` | All three respond in `/docs`; infeasible-ish inputs return `200` with status + suggestions, never a 500 |
+| M3 | LP standalone | `or_models/lp_model.py` + `airops/solving/lp_runner.py`; `tests/test_lp.py` | Solves to Optimal on the default scenario; baseline is feasible; optimum ≥ baseline on its own objective; duals extracted; congestion multiplier demonstrably changes the allocation |
+| M4 | LP API | `airops/schemas/lp.py`, `airops/api/lp.py` — `/parameters`, `/solve`, `/sensitivity` | All three respond in `/docs`; infeasible-ish inputs return `200` with status + suggestions, never a 500 |
 | M5 | LP UI | LP pages | Full round trip: adjust sliders → parameters table updates → Solve → allocation chart, duals and sensitivity curve render |
 
 ### Part 2 — IP track
@@ -174,9 +175,9 @@ Independent of Part 1 **for development sequencing only** — M6 consumes `w_t*`
 
 | # | Milestone | Deliverable | Done when |
 |---|---|---|---|
-| M6 ✓ | IP standalone | `models/ip_shipment_selection.py`; FCFS baseline in `core/baseline.py`; `tests/test_ip.py` | Solves to Optimal on a 50-shipment batch; IP value ≥ FCFS under identical capacities; worker-minutes constraint is per-terminal and fed by `w_t*`; policy constraints toggle correctly; forced-Critical infeasibility is pre-detected |
-| M7 ✓ | IP API | `schemas/ip.py`, `api/ip.py` — `/batch`, `/solve` | Round trip verified in `/docs`; the optional LP-result input works, so Part 2 is testable standalone |
-| M8 ✓ | IP UI | `page-ip.jsx`, `page-ip-results.jsx`, replacing the placeholder | Batch preview → Solve → accepted/rejected table, priority-mix comparison, capacity utilisation bars |
+| M6 ✓ | IP standalone | `or_models/ip_model.py` + `airops/solving/ip_runner.py`; FCFS baseline in `airops/solving/baseline.py`; `tests/test_ip.py` | Solves to Optimal on a 50-shipment batch; IP value ≥ FCFS under identical capacities; worker-minutes constraint is per-terminal and fed by `w_t*`; policy constraints toggle correctly; forced-Critical infeasibility is pre-detected |
+| M7 ✓ | IP API | `airops/schemas/ip.py`, `airops/api/ip.py` — `/batch`, `/solve` | Round trip verified in `/docs`; the optional LP-result input works, so Part 2 is testable standalone |
+| M8 ✓ | IP UI | `frontend/ip.html` + `page-ip.js`, replacing the placeholder | Batch preview → Solve → accepted/rejected table, priority-mix comparison, capacity utilisation bars |
 
 ### Close-out
 
@@ -216,6 +217,5 @@ not shadow prices), and every gain is model-world under stated assumptions.
 | Infeasibility from user sliders | Soft demand constraints with penalised slack; IP feasibility pre-checks; `200` + suggestions, never a 500 |
 | Inflated improvement claims | Same-objective, same-resources invariant; `expanded_resources` flag; penalty-dominance disclosure |
 | Extreme derived rates | Group means over per-row ratios; clip denominators |
-| Frontend/backend contract drift | Pydantic schemas are the single source of truth; a schema change and its frontend update ship together |
-| Babel-in-browser gets slow as the UI grows | Split JSX across `components.jsx` and per-page files; keep each to a few hundred lines |
+| Frontend/server contract drift | Pydantic schemas are the single source of truth; a schema change and its frontend update ship together |
 | Re-deriving parameters on every widget change | Cache by `(dataset_id, scenario, tunables)`; solve only on an explicit button click |

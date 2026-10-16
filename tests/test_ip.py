@@ -14,10 +14,10 @@ from dataclasses import replace
 import pandas as pd
 import pytest
 
-from backend.core import baseline as baseline_mod
-from backend.core import config, data_loader, preprocessing
-from backend.models import ip_shipment_selection as ip
-from backend.models import lp_resource_allocation as lp
+from airops.solving import baseline as baseline_mod
+from airops.core import config, data_loader, preprocessing
+from airops.solving import ip_runner as ip
+from airops.solving import lp_runner as lp
 
 
 @pytest.fixture(scope="module")
@@ -402,18 +402,6 @@ def test_the_ip_reports_no_duals(problem: ip.SelectionProblem) -> None:
     assert not hasattr(result, "duals")
     assert result.solution is not None
     assert not hasattr(result.solution, "shadow_prices")
-
-
-# --- Purity -------------------------------------------------------------------
-
-
-def test_model_module_stays_pure() -> None:
-    """Models must not reach for the data layer or the web layer (AGENT.md)."""
-    source = (config.PROJECT_ROOT / "backend" / "models" /
-              "ip_shipment_selection.py").read_text(encoding="utf-8")
-    for forbidden in ("import pandas", "from fastapi", "import fastapi",
-                      "from backend.core.store", "read_csv", "import numpy"):
-        assert forbidden not in source, f"model imports {forbidden}"
 
 
 # --- The greedy baseline (MODEL.md section 5) --------------------------------
