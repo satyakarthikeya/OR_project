@@ -24,7 +24,8 @@ bundled 5,000-record Kaggle dataset. Two optimization models solved with PuLP, e
 through FastAPI and consumed by a plain HTML/CSS/JavaScript frontend served from the same origin.
 
 - **Part 1 — LP: workforce and equipment allocation** across four terminals, maximising
-  throughput or minimising cost.
+  throughput. One objective, no choice: cost is reported and can cap the plan through the
+  optional budget, but it is never optimised.
 - **Part 2 — IP: shipment selection**, a 0-1 multi-dimensional knapsack choosing which
   shipments to process under limited capacity.
 
@@ -194,7 +195,7 @@ from CDN, pinned. One `uvicorn` command runs everything.
   panel whose body scrolls on its own, with Solve pinned to its foot (on a phone the foot sticks
   to the bottom of the screen), and results beside it. The few settings people change are
   visible; the rest sit in closed folds. A result opens with one plain sentence
-  (`AC.headline`) — quoting throughput, cost or value, never the objective % — then the numbers.
+  (`AC.headline`) — quoting throughput or value, never the objective % — then the numbers.
 - **Controls come from `AC.ui`** (slider, toggle, segmented, chips, numberInput, group). Each
   returns a node with `.set()` / `.setDisabled()`. A switch and the control it enables sit in one
   `AC.ui.group`. Explanations go in the widget's `help` (behind a "?" button); warnings the user
@@ -309,10 +310,12 @@ Not defects, but they will surprise you.
 - **Capacity floor.** `Cap_t` is raised to the terminal's own modelled baseline throughput
   where the percentile lands below it. Without this, a lopsided scenario slice makes the
   observed allocation infeasible and voids every comparison.
-- **Penalty scaling.** `M` is scaled to the largest coefficient of the *active* objective. It
-  is a large number chosen to dominate, not a meaningful figure in either unit — in the
-  `min_cost` branch the scale is a cost per resource unit while `s_t` is in throughput units.
-  `unmet_penalty` must never be quoted as money.
+- **Penalty scaling.** `M` is `10 ×` the largest throughput coefficient, `max(α_t, β_t)`. It
+  is a large number chosen to dominate, not a meaningful figure: `unmet_penalty` must never
+  be quoted as money.
+- **One LP objective.** Part 1 maximises throughput, as the problem statement and the slides
+  do. The min-cost objective was removed; an old client that still sends `objective` on
+  `/api/lp/solve` has the field ignored, not rejected. Do not reintroduce a selector.
 - **Penalty-dominance note.** When at or above half the objective delta comes from the slack
   penalty, `comparison.py` says so. This is what stops the UI quoting a 120% improvement when
   throughput moved 0.3%. It covers the objective delta only.

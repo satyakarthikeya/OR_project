@@ -14,8 +14,6 @@ from pydantic import BaseModel, Field
 from airops.core import config
 from airops.schemas.common import ScenarioFiltersIn, SolveStatus
 
-Objective = Literal["max_throughput", "min_cost"]
-
 
 # --- Requests ----------------------------------------------------------------
 
@@ -58,7 +56,12 @@ class LPParametersIn(BaseModel):
 
 
 class LPSolveIn(LPParametersIn):
-    objective: Objective = "max_throughput"
+    """One objective, maximise throughput, so there is nothing to choose.
+
+    A legacy `objective` field from an old client is ignored, like any other
+    unknown field.
+    """
+
     workforce_pool_factor: float = Field(
         default=1.0, ge=config.POOL_FACTOR_MIN, le=config.POOL_FACTOR_MAX,
         description="Worker pool as a multiple of the observed total.",
@@ -141,7 +144,7 @@ class LPParametersOut(BaseModel):
     baseline_throughput: float
     baseline_cost: float
     baseline_unmet_demand: float
-    unmet_penalty: dict[str, float]
+    unmet_penalty: float
     assumptions: LPAssumptionsOut
     derivation: list[DerivationNote]
     warnings: list[str] = Field(default_factory=list)
@@ -194,7 +197,6 @@ class MetricDeltaOut(BaseModel):
 
 
 class ComparisonOut(BaseModel):
-    objective: Objective
     headline: MetricDeltaOut
     metrics: list[MetricDeltaOut]
     expanded_resources: bool
@@ -217,7 +219,6 @@ class LPSolveOut(BaseModel):
     status: SolveStatus
     message: str
     suggestions: list[str] = Field(default_factory=list)
-    objective: Objective
     objective_label: str
     solve_seconds: float
     allocation: list[AllocationRow] = Field(default_factory=list)
@@ -253,7 +254,6 @@ class SensitivityPoint(BaseModel):
 
 class LPSensitivityOut(BaseModel):
     dataset_id: str
-    objective: Objective
     objective_label: str
     swept: str = "workforce_total"
     baseline_workforce_total: float

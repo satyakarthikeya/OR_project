@@ -89,25 +89,17 @@ of the final LP relaxation at the incumbent node. The model is therefore **solve
 the relaxation gives the duals and the sensitivity ranges, the MILP gives the allocation
 that gets reported. Every response says which numbers came from which solve.
 
-### 3.2 Objective functions
+### 3.2 Objective function
 
-The user picks one. Both are exposed in the UI.
-
-**Maximise throughput:**
+One objective: **maximise throughput**, less a penalty on unmet demand.
 
 ```latex
 \max \; Z \;=\; \sum_{t} \bigl(\alpha_t w_t + \beta_t e_t\bigr) \;-\; M \sum_{t} s_t
 ```
 
-**Minimise operational cost subject to demand:**
-
-```latex
-\min \; Z \;=\; \sum_{t} \bigl(c^{w}_{t} w_t + c^{e}_{t} e_t\bigr) \;+\; M \sum_{t} s_t
-```
-
-The min-cost objective is the more interesting of the two on this data, because differing
-`D_t` and `c_t` drive genuine trade-offs even when the terminals are near-identical in
-productivity. Lead with it in the report.
+Throughput is what the problem statement and the slides target, so it is the only thing the
+LP optimises. Unit costs `c^w_t`, `c^e_t` (§3.4) are not in the objective: they price the
+chosen allocation for reporting and feed the optional budget cap (+) in §3.3.
 
 ### 3.3 Constraints
 
@@ -278,7 +270,7 @@ terminal arrival rates now reach the model instead of being averaged away.
 | `Cap_t` | 95th percentile of observed `Throughput_Rate` per terminal (the max is noisy), **raised to the terminal's own modelled baseline throughput where the two collide**. The percentile is computed on observed rows while the baseline runs through the congested production function, so on a lopsided slice the ceiling can otherwise fall below the baseline and make the observed allocation infeasible |
 | `w_t^min/max`, `e_t^min/max` | 5th / 95th percentile of observed values per terminal. Equipment bounds are floored/ceiled to integers, since CBC will tighten a fractional bound on an integer variable anyway |
 | `ρ` | 1.5 workers per equipment unit. Stated operational assumption |
-| `M` | `10 ×` the largest coefficient of the active objective — a large number chosen to dominate. See the warning below |
+| `M` | `10 ×` the largest throughput coefficient, `max(α_t, β_t)` — a large number chosen to dominate. See the warning below |
 | `demand_scale` | User stress multiplier on `D_t`, default 1.0, up to 5.0. A scenario control, not a derived parameter |
 | Baseline | `w̄_t`, `ē_t` evaluated in the same objective |
 
@@ -305,10 +297,8 @@ Two requirements follow:
 The penalty-dominance note in `comparison.py` covers the *objective delta* only and must not
 be described as covering the duals.
 
-A dimensional wrinkle in `M` worth knowing: in the `min_cost` branch the scale is
-`max(c^w, c^e)`, a cost per resource unit, but `M` multiplies `s_t`, which is in throughput
-units. So `unmet_penalty` as reported is not a currency figure and must never be quoted as
-money.
+`M` is a weight in the objective's throughput units, not a currency figure, so
+`unmet_penalty` must never be quoted as money.
 
 ---
 
@@ -434,16 +424,12 @@ Non-negotiable, and the thing most likely to be probed.
   obvious sensible policy?". Quoting only FCFS inflates the optimizer by two orders of
   magnitude on this data, which is the same offence as quoting a penalty-driven objective
   delta.
-- **A min-cost saving that comes with a fall in throughput is labelled as one.** Minimising
-  cost only requires demand to be met, and demand sits well below observed capability here,
-  so the cheapest plan stops at the demand line and cost falls roughly in proportion with
-  output. `comparison.SERVICE_LEVEL_DROP_THRESHOLD` triggers the disclosure.
 - Same resource totals by default. Runs with raised pools are flagged
   `expanded_resources: true` and labelled in the UI.
 - Report absolute and percentage deltas, binding constraints, shadow prices, capacity
   utilisation and unmet demand.
 - **Penalty-dominance disclosure.** When at or above half the objective delta comes from the
-  slack penalty rather than from throughput or cost, the response says so and points at the
+  slack penalty rather than from throughput, the response says so and points at the
   operational rows. On the default scenario the objective improves 120% while throughput
   improves 0.3%; quoting the 120% unqualified would be exactly the inflated claim this rule
   forbids.
@@ -484,9 +470,8 @@ bundled CSV at base parameters:
 | IP vs FCFS | +106% value, 62% different set |
 
 Part 2's figures are the standalone default batch (50 shipments, `f` = 0.6, seed 42). Both
-gaps move with the scenario — under a min-cost Part 1 allocation the same batch gives +0.9%
-over greedy and +589% over FCFS — which is itself the point: quote the range and the
-baseline, never a single number with neither.
+gaps move with the scenario, which is itself the point: quote the range and the baseline,
+never a single number with neither.
 
 Say these yourself, and lead Part 2 with the greedy figure. The +106% over FCFS is real but
 flattering: arrival order carries no information about value at all, so beating it is not
@@ -512,7 +497,7 @@ find the answer here.
 | Symbol | Value | Status | Justification |
 |---|---|---|---|
 | `θ` | 0.6 | **Assumed** | Labour share of throughput. Free parameter, UI-exposed, primary sensitivity axis |
-| `θ_c` | 0.6 | **Assumed** | Labour share of operational cost |
+| `θ_c` | 0.6 | **Assumed** | Labour share of operational cost. Reporting and budget cap only, not the objective |
 | `α_t`, `β_t` | see §3.4 | **Declared**, anchored to terminal means | Not estimated. Regression gives R² = 0.0001 |
 | `γ_t`, `δ` | δ = 1 | **Assumed** functional form, data-grounded inputs | Bottleneck rate and facility utilisation genuinely vary |
 | `H` | 8 h | **Assumed** | Planning window. Converts demand level to rate |
@@ -521,7 +506,7 @@ find the answer here.
 | `Cap_t` | p95 of terminal throughput, floored at baseline | **Derived** + guard | Max is noisy; guard keeps the baseline feasible |
 | bounds | p5 / p95 per terminal | **Derived** | Terminals can be neither abandoned nor over-stuffed |
 | `ρ` | 1.5 | **Assumed** | Operators per equipment unit. Observed ratio ≈3.6 clears it |
-| `M` | 10 × largest active coefficient | **Assumed** | Chosen to dominate. Not a currency figure |
+| `M` | 10 × largest of `α_t`, `β_t` | **Assumed** | Chosen to dominate. Not a currency figure |
 | `p_i` | 10 / 5 / 2 / 1 | **Assumed** | Priority weights, UI-adjustable |
 | `λ_w`, `λ_q` | 0.5, 0.5 | **Assumed** | Balance between urgency signals |
 | `U` | 0.9 | **Derived** from the priority weights | Must stay below the tightest adjacent ratio (2) |

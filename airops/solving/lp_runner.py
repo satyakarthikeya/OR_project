@@ -20,13 +20,13 @@ from airops.core import config
 from airops.solving.lp_checks import check_problem
 from airops.solving.lp_duals import collect_duals
 from airops.solving.lp_results import (
-    OBJECTIVE_LABELS,
+    OBJECTIVE_LABEL,
     AllocationEvaluation,
     AllocationResult,
     ConstraintDual,
     evaluate_allocation,
 )
-from or_models.inputs import AllocationProblem, Objective
+from or_models.inputs import AllocationProblem
 from or_models.lp_model import LPModel, build_lp, read_lp, solve_lp
 
 if TYPE_CHECKING:  # typing only - keeps this module free of pandas
@@ -34,14 +34,13 @@ if TYPE_CHECKING:  # typing only - keeps this module free of pandas
 
 __all__ = [
     "AllocationProblem", "AllocationEvaluation", "AllocationResult",
-    "OBJECTIVE_LABELS", "check_problem", "evaluate_allocation",
+    "OBJECTIVE_LABEL", "check_problem", "evaluate_allocation",
     "problem_from_parameters", "solve_allocation",
 ]
 
 
 def problem_from_parameters(
     params: "LPParameters",
-    objective: Objective = "max_throughput",
     workforce_total: float | None = None,
     equipment_total: float | None = None,
     budget: float | None = None,
@@ -86,7 +85,6 @@ def problem_from_parameters(
         equipment_total=(
             params.equipment_total if equipment_total is None else equipment_total
         ),
-        objective=objective,
         budget=budget,
         penalty_factor=penalty_factor,
         staffing_ratio=staffing_ratio,
@@ -118,14 +116,10 @@ def solve_allocation(
     unqualified overstates the value of a worker by an order of magnitude
     (MODEL.md section 3.5).
     """
-    label = OBJECTIVE_LABELS[problem.objective]
-
     errors, suggestions = check_problem(problem)
     if errors:
         return AllocationResult(
             status="Infeasible",
-            objective=problem.objective,
-            objective_label=label,
             message="; ".join(errors),
             suggestions=suggestions,
         )
@@ -136,8 +130,6 @@ def solve_allocation(
     if status != "Optimal":
         return AllocationResult(
             status=status,
-            objective=problem.objective,
-            objective_label=label,
             message=(
                 f"The solver returned '{status}'. The soft demand constraints "
                 "make plain demand shortfalls impossible to hit, so this points "
@@ -160,9 +152,7 @@ def solve_allocation(
 
     return AllocationResult(
         status="Optimal",
-        objective=problem.objective,
-        objective_label=label,
-        message=f"Solved to optimality: {label.lower()}.",
+        message=f"Solved to optimality: {OBJECTIVE_LABEL.lower()}.",
         solution=evaluation,
         duals=duals,
         solve_seconds=elapsed + extra,

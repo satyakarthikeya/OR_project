@@ -190,8 +190,8 @@
   /** Part 1 -> Part 2 link: the solved workers per terminal, kept for the IP page. */
   const HANDOFF_KEY = 'acro-lp-handoff';
   const handoff = {
-    save(datasetId, workforce, objective) {
-      try { sessionStorage.setItem(HANDOFF_KEY, JSON.stringify({ datasetId, workforce, objective })); } catch (e) { /* ignore */ }
+    save(datasetId, workforce) {
+      try { sessionStorage.setItem(HANDOFF_KEY, JSON.stringify({ datasetId, workforce })); } catch (e) { /* ignore */ }
     },
     load(datasetId) {
       try {

@@ -10,12 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from airops.core import config
-from or_models.inputs import AllocationProblem, Objective
+from or_models.inputs import AllocationProblem
 
-OBJECTIVE_LABELS: dict[str, str] = {
-    "max_throughput": "Maximise throughput",
-    "min_cost": "Minimise operational cost subject to demand",
-}
+OBJECTIVE_LABEL = "Maximise throughput"
 
 
 @dataclass
@@ -81,8 +78,7 @@ class AllocationEvaluation:
 @dataclass
 class AllocationResult:
     status: str
-    objective: Objective
-    objective_label: str
+    objective_label: str = OBJECTIVE_LABEL
     message: str = ""
     suggestions: list[str] = field(default_factory=list)
     solution: AllocationEvaluation | None = None
@@ -113,7 +109,11 @@ def evaluate_allocation(
     workforce: dict[str, float],
     equipment: dict[str, float],
 ) -> AllocationEvaluation:
-    """Score any allocation with the objective the problem was posed under."""
+    """Score any allocation with the model's objective: throughput less M * unmet.
+
+    Cost is computed alongside as a reported metric (and for the optional
+    budget cap); it is not part of the objective.
+    """
     throughput = {
         t: problem.alpha[t] * workforce[t] + problem.beta[t] * equipment[t]
         for t in problem.terminals
@@ -131,11 +131,7 @@ def evaluate_allocation(
     total_cost = sum(cost.values())
     total_unmet = sum(unmet.values())
     penalty = problem.unmet_penalty * total_unmet
-
-    if problem.objective == "max_throughput":
-        objective_value = total_throughput - penalty
-    else:
-        objective_value = total_cost + penalty
+    objective_value = total_throughput - penalty
 
     return AllocationEvaluation(
         workforce=dict(workforce),

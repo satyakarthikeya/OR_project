@@ -1,16 +1,15 @@
 """Part 1 - the allocation LP.  Modelling only.
 
 Question: how many workers (w) and equipment units (e) should each terminal t
-get, so that throughput is as high (or cost as low) as possible?
+get, so that throughput is as high as possible?
 
 DECISION VARIABLES   (for every terminal t)
     w_t >= 0            workers          continuous  (26.4 = a shift split across terminals)
     e_t >= 0, integer   equipment units  whole machines
     s_t >= 0            unmet demand     "slack" that keeps the model feasible
 
-OBJECTIVE   (the user picks one)
-    max   sum_t ( alpha_t w_t + beta_t e_t )   - M sum_t s_t       throughput
-    min   sum_t ( cw_t w_t    + ce_t e_t )     + M sum_t s_t       cost
+OBJECTIVE
+    max Z = sum_t ( alpha_t w_t + beta_t e_t ) - M sum_t s_t       throughput
 
 CONSTRAINTS
     (1) sum_t w_t <= W                              worker pool
@@ -68,10 +67,7 @@ def build_lp(
                        left out; used to take the penalty M out of the duals.
     """
     T = problem.terminals
-    maximise = problem.objective == "max_throughput"
-    prob = pulp.LpProblem(
-        "air_cargo_allocation", pulp.LpMaximize if maximise else pulp.LpMinimize
-    )
+    prob = pulp.LpProblem("air_cargo_allocation", pulp.LpMaximize)
 
     # ---- Decision variables, with the bounds of constraint (6) ----------------
     w = {t: pulp.LpVariable(f"workers_{t}", *problem.workforce_bounds[t]) for t in T}
@@ -86,16 +82,10 @@ def build_lp(
 
     # ---- Expressions used more than once --------------------------------------
     throughput = {t: problem.alpha[t] * w[t] + problem.beta[t] * e[t] for t in T}
-    cost = {
-        t: problem.cost_worker[t] * w[t] + problem.cost_equipment[t] * e[t] for t in T
-    }
     penalty = problem.unmet_penalty * pulp.lpSum(s.values())     # M * sum s_t
 
     # ---- Objective ------------------------------------------------------------
-    if maximise:
-        prob += pulp.lpSum(throughput.values()) - penalty, "objective"
-    else:
-        prob += pulp.lpSum(cost.values()) + penalty, "objective"
+    prob += pulp.lpSum(throughput.values()) - penalty, "objective"
 
     # ---- Constraints ----------------------------------------------------------
     labels: list[ConstraintLabel] = []
@@ -122,7 +112,10 @@ def build_lp(
         labels.append(ConstraintLabel(f"staffing_{t}", "staffing", t, ">=", 0.0))
 
     if problem.budget is not None:                                                 # (+)
-        prob += pulp.lpSum(cost.values()) <= problem.budget, "budget"
+        cost = pulp.lpSum(
+            problem.cost_worker[t] * w[t] + problem.cost_equipment[t] * e[t] for t in T
+        )
+        prob += cost <= problem.budget, "budget"
         labels.append(ConstraintLabel("budget", "budget", None, "<=", problem.budget))
 
     return LPModel(prob, w, e, s, labels)

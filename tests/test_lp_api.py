@@ -47,7 +47,10 @@ def test_parameters_expose_every_coefficient(dataset_id: str) -> None:
         assert row["workforce_min"] < row["workforce_max"]
 
     assert body["workforce_total"] > 0
-    assert set(body["unmet_penalty"]) == {"max_throughput", "min_cost"}
+    largest = max(r[k] for r in body["terminals"] for k in ("alpha", "beta"))
+    assert body["unmet_penalty"] == pytest.approx(
+        config.UNMET_DEMAND_PENALTY_FACTOR * largest
+    )
 
 
 def test_parameters_carry_their_derivation_and_the_caveat(dataset_id: str) -> None:
@@ -121,12 +124,12 @@ def test_out_of_range_labor_share_is_rejected(dataset_id: str) -> None:
 # --- /solve -------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("objective", ["max_throughput", "min_cost"])
-def test_solve_returns_a_full_result(dataset_id: str, objective: str) -> None:
-    body = solve(dataset_id, objective=objective)
+def test_solve_returns_a_full_result(dataset_id: str) -> None:
+    body = solve(dataset_id)
 
     assert body["status"] == "Optimal"
-    assert body["objective"] == objective
+    assert body["objective_label"] == "Maximise throughput"
+    assert "objective" not in body
     assert len(body["allocation"]) == 4
     assert body["duals"]
     assert body["comparison"]["headline"]["label"]
@@ -146,15 +149,19 @@ def test_solve_respects_the_resource_pools(dataset_id: str) -> None:
     assert resources["equipment_used"] <= resources["equipment_available"] + 1e-6
 
 
-@pytest.mark.parametrize("objective", ["max_throughput", "min_cost"])
-def test_optimum_beats_the_baseline_on_its_own_objective(
-    dataset_id: str, objective: str
-) -> None:
-    headline = solve(dataset_id, objective=objective)["comparison"]["headline"]
-    if objective == "max_throughput":
-        assert headline["optimized"] >= headline["baseline"] - 1e-6
-    else:
-        assert headline["optimized"] <= headline["baseline"] + 1e-6
+def test_optimum_beats_the_baseline_on_its_own_objective(dataset_id: str) -> None:
+    headline = solve(dataset_id)["comparison"]["headline"]
+    assert headline["better"] == "up"
+    assert headline["optimized"] >= headline["baseline"] - 1e-6
+
+
+@pytest.mark.parametrize("legacy", ["max_throughput", "min_cost"])
+def test_a_legacy_objective_field_is_ignored(dataset_id: str, legacy: str) -> None:
+    """Old clients may still send `objective`; it must not fail the request."""
+    body = solve(dataset_id, objective=legacy)
+    assert body["status"] == "Optimal"
+    assert body["objective_label"] == "Maximise throughput"
+    assert body["comparison"]["headline"] == solve(dataset_id)["comparison"]["headline"]
 
 
 def test_default_run_is_not_an_expanded_resources_scenario(dataset_id: str) -> None:
@@ -251,7 +258,7 @@ def test_a_starved_pool_returns_advice_not_a_500(dataset_id: str) -> None:
 
 
 def test_an_impossible_budget_returns_suggestions(dataset_id: str) -> None:
-    body = solve(dataset_id, objective="min_cost", budget_factor=0.01)
+    body = solve(dataset_id, budget_factor=0.01)
     assert body["status"] == "Infeasible"
     assert body["allocation"] == []
     assert body["comparison"] is None
@@ -259,13 +266,13 @@ def test_an_impossible_budget_returns_suggestions(dataset_id: str) -> None:
 
 
 def test_unmeetable_demand_is_reported_as_slack(dataset_id: str) -> None:
-    body = solve(dataset_id, objective="min_cost", demand_scale=3.0)
+    body = solve(dataset_id, demand_scale=3.0)
     assert body["status"] == "Optimal"
     assert sum(row["unmet_demand"] for row in body["allocation"]) > 0
 
 
 def test_budget_cap_is_respected(dataset_id: str) -> None:
-    body = solve(dataset_id, objective="max_throughput", budget_factor=0.9)
+    body = solve(dataset_id, budget_factor=0.9)
     assert body["status"] == "Optimal"
     assert body["resources"]["cost_incurred"] <= body["resources"]["budget"] + 1e-6
 
@@ -279,7 +286,7 @@ def test_solve_is_fast_enough_to_stay_synchronous(dataset_id: str) -> None:
 
 def test_sensitivity_sweeps_the_worker_pool(dataset_id: str) -> None:
     body = client.post("/api/lp/sensitivity", json={
-        "dataset_id": dataset_id, "objective": "max_throughput",
+        "dataset_id": dataset_id,
         "factor_min": 0.8, "factor_max": 1.2, "points": 9,
     }).json()
 
@@ -293,20 +300,12 @@ def test_sensitivity_sweeps_the_worker_pool(dataset_id: str) -> None:
 def test_more_workers_never_hurt_the_throughput_objective(dataset_id: str) -> None:
     """Relaxing a constraint cannot make a maximisation worse."""
     body = client.post("/api/lp/sensitivity", json={
-        "dataset_id": dataset_id, "objective": "max_throughput", "points": 7,
+        "dataset_id": dataset_id, "points": 7,
     }).json()
 
+    assert body["objective_label"] == "Maximise throughput"
     values = [p["objective_value"] for p in body["points"]]
     assert all(b >= a - 1e-6 for a, b in zip(values, values[1:]))
-
-
-def test_more_workers_never_hurt_the_cost_objective(dataset_id: str) -> None:
-    body = client.post("/api/lp/sensitivity", json={
-        "dataset_id": dataset_id, "objective": "min_cost", "points": 7,
-    }).json()
-
-    values = [p["objective_value"] for p in body["points"]]
-    assert all(b <= a + 1e-6 for a, b in zip(values, values[1:]))
 
 
 def test_sensitivity_rejects_an_inverted_range(dataset_id: str) -> None:

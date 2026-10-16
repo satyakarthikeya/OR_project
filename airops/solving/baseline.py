@@ -20,7 +20,7 @@ from or_models.inputs import AllocationProblem, SelectionProblem
 
 @dataclass
 class BaselineResult:
-    """The observed mean allocation, scored under the active objective."""
+    """The observed mean allocation, scored under the model's objective."""
 
     evaluation: AllocationEvaluation
     feasible: bool
